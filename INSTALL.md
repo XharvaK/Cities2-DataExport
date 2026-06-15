@@ -7,8 +7,6 @@ PowerShell and Command Prompt use different environment variable syntax:
 - PowerShell: `$HOME` or `$env:USERPROFILE`
 - Command Prompt: `%USERPROFILE%`
 
-Do not paste Command Prompt commands into PowerShell.
-
 ## 1. Build the mod with PowerShell
 
 Open PowerShell, then run:
