@@ -107,15 +107,53 @@ If that folder is missing, initialize or update the CS2 modding tools from the g
 
 Warning: depending on your CS2 modding toolchain, `dotnet build` may automatically copy the built mod into your local `Mods\CS2DataExport` folder. If you already have an installed copy, back it up before building.
 
+### PowerShell
+
+These commands are for PowerShell. If you downloaded the GitHub source zip, Windows may extract it as `Downloads\Cities2-DataExport-main\Cities2-DataExport-main`; the commands below find the project file automatically.
+
+```powershell
+$sourceRoot = Join-Path $HOME 'Downloads\Cities2-DataExport-main'
+
+if (-not (Test-Path -LiteralPath (Join-Path $sourceRoot 'CS2DataExport.csproj'))) {
+    $projectFile = Get-ChildItem -LiteralPath $sourceRoot -Recurse -Filter CS2DataExport.csproj |
+        Select-Object -First 1
+
+    if ($null -eq $projectFile) {
+        throw "Could not find CS2DataExport.csproj under $sourceRoot. Check where the zip was extracted."
+    }
+
+    $sourceRoot = $projectFile.DirectoryName
+}
+
+Set-Location -LiteralPath $sourceRoot
+
+$env:DOTNET_ROLL_FORWARD = 'Major'
+Remove-Item -LiteralPath .\obj -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath .\bin -Recurse -Force -ErrorAction SilentlyContinue
+dotnet build .\CS2DataExport.csproj -c Release -p:LangVersion=latest
+
+$modInstallPath = Join-Path $env:USERPROFILE 'AppData\LocalLow\Colossal Order\Cities Skylines II\Mods\CS2DataExport'
+robocopy (Join-Path $PWD 'bin\Release\net48') $modInstallPath /MIR
+
+if ($LASTEXITCODE -gt 7) {
+    throw "robocopy failed with exit code $LASTEXITCODE"
+}
+```
+
+`robocopy` exit codes `0` through `7` are considered success.
+
+`robocopy /MIR` mirrors the source folder to the destination and can delete destination files that are not present in the build output. Use it only when you intentionally want the installed mod folder to match the fresh build.
+
 ### Command Prompt
 
 These commands are for Windows Command Prompt (`cmd.exe`).
 
 ```bat
+cd /d "%USERPROFILE%\Downloads\Cities2-DataExport-main\Cities2-DataExport-main"
 set DOTNET_ROLL_FORWARD=Major
 rmdir /s /q obj 2>nul
 rmdir /s /q bin 2>nul
-dotnet build -c Release -p:LangVersion=latest
+dotnet build CS2DataExport.csproj -c Release -p:LangVersion=latest
 robocopy "%CD%\bin\Release\net48" "%USERPROFILE%\AppData\LocalLow\Colossal Order\Cities Skylines II\Mods\CS2DataExport" /MIR
 ```
 
@@ -123,23 +161,11 @@ robocopy "%CD%\bin\Release\net48" "%USERPROFILE%\AppData\LocalLow\Colossal Order
 
 `robocopy /MIR` mirrors the source folder to the destination and can delete destination files that are not present in the build output. Use it only when you intentionally want the installed mod folder to match the fresh build.
 
-### PowerShell
-
-If you use PowerShell, use this form instead:
-
-```powershell
-$env:DOTNET_ROLL_FORWARD = 'Major'
-Remove-Item -LiteralPath .\obj -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath .\bin -Recurse -Force -ErrorAction SilentlyContinue
-dotnet build -c Release -p:LangVersion=latest
-robocopy "$PWD\bin\Release\net48" "$env:USERPROFILE\AppData\LocalLow\Colossal Order\Cities Skylines II\Mods\CS2DataExport" /MIR
-```
-
 If the CS2 mod post-processor fails with a message about `Microsoft.NETCore.App 6.0.0`, make sure `DOTNET_ROLL_FORWARD` is set in the same terminal before running `dotnet build`:
 
 ```bat
 set DOTNET_ROLL_FORWARD=Major
-dotnet build -c Release -p:LangVersion=latest
+dotnet build CS2DataExport.csproj -c Release -p:LangVersion=latest
 ```
 
 More detailed Windows install notes are in [INSTALL.md](INSTALL.md).
