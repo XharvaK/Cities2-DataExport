@@ -2,7 +2,9 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Game.City;
 using Game.Agents;
 using Game.Buildings;
@@ -10,6 +12,7 @@ using Game.Citizens;
 using Game.Common;
 using Game.Companies;
 using Game.Economy;
+using Game.Net;
 using Game.Objects;
 using Game.Pathfind;
 using Game.Prefabs;
@@ -248,30 +251,82 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         };
     }
 
+    private static readonly Regex ContinueGameTitleRegex = new(
+        "\"title\"\\s*:\\s*\"([^\"]+)\"",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     private string? TryResolveCityName(List<string> notes)
     {
         World? world = _getWorld();
         if (world == null || !world.IsCreated)
         {
             notes.Add("city_name unavailable: runtime World is unavailable.");
-            return null;
+            return TryReadContinueGameCityName(notes);
         }
 
         CityConfigurationSystem? cityConfiguration = world.GetExistingSystemManaged<CityConfigurationSystem>();
         if (cityConfiguration == null)
         {
             notes.Add("city_name unavailable: CityConfigurationSystem is unavailable.");
-            return null;
+            return TryReadContinueGameCityName(notes);
         }
 
         string? cityName = cityConfiguration.cityName;
-        if (string.IsNullOrWhiteSpace(cityName))
+        if (!string.IsNullOrWhiteSpace(cityName))
         {
-            notes.Add("city_name is empty in CityConfigurationSystem.");
-            return null;
+            return cityName.Trim();
         }
 
-        return cityName.Trim();
+        notes.Add("city_name is empty in CityConfigurationSystem.");
+        return TryReadContinueGameCityName(notes);
+    }
+
+    private static string? TryReadContinueGameCityName(List<string> notes)
+    {
+        try
+        {
+            string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (string.IsNullOrWhiteSpace(profile))
+            {
+                return null;
+            }
+
+            string path = Path.Combine(
+                profile,
+                "AppData",
+                "LocalLow",
+                "Colossal Order",
+                "Cities Skylines II",
+                "continue_game.json");
+            if (!File.Exists(path))
+            {
+                notes.Add("city_name fallback unavailable: continue_game.json not found.");
+                return null;
+            }
+
+            string json = File.ReadAllText(path);
+            Match match = ContinueGameTitleRegex.Match(json);
+            if (!match.Success)
+            {
+                notes.Add("city_name fallback unavailable: continue_game.json has no title field.");
+                return null;
+            }
+
+            string title = match.Groups[1].Value.Trim();
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                notes.Add("city_name fallback unavailable: continue_game.json title is empty.");
+                return null;
+            }
+
+            notes.Add("city_name resolved from continue_game.json title fallback.");
+            return title;
+        }
+        catch (Exception ex)
+        {
+            notes.Add("city_name fallback failed: " + ex.GetType().Name + ": " + ex.Message);
+            return null;
+        }
     }
 
     public PopulationSummary CollectPopulationSummary()
@@ -1199,6 +1254,11 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             {
                 notes.Add("line_identifier values prioritize XTM acronyms when available, then route_number.");
             }
+
+            if (linesTotal == 0)
+            {
+                notes.Add("no transit lines in city; line-level aggregates are zero.");
+            }
         }
         else
         {
@@ -1354,9 +1414,14 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
                 notes.Add("line_identifier values prioritize XTM acronyms when available, then route_number.");
             }
 
+            if (sortedLines.Length == 0)
+            {
+                notes.Add("no transit lines in city; line detail semantics are not applicable.");
+            }
+
             return new TransitLineDetailSemanticsSummary
             {
-                Status = sortedLines.Length > 0 ? MetricStatus.Ok : MetricStatus.Partial,
+                Status = MetricStatus.Ok,
                 LinesObserved = lines.Count,
                 PassengerLinesObserved = passengerLines,
                 CargoLinesObserved = cargoLines,
@@ -1923,13 +1988,18 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
                     });
             }
 
-            double? lineVehicleEntitiesP50 = null;
-            double? lineVehicleEntitiesP95 = null;
+            double? lineVehicleEntitiesP50;
+            double? lineVehicleEntitiesP95;
             if (vehicleCounts.Count > 0)
             {
                 vehicleCounts.Sort();
                 lineVehicleEntitiesP50 = Math.Round(Percentile(vehicleCounts, 0.50), 2, MidpointRounding.AwayFromZero);
                 lineVehicleEntitiesP95 = Math.Round(Percentile(vehicleCounts, 0.95), 2, MidpointRounding.AwayFromZero);
+            }
+            else
+            {
+                lineVehicleEntitiesP50 = 0;
+                lineVehicleEntitiesP95 = 0;
             }
 
             var topLinesByActiveVehicles = new List<MobilityLineRecord>(lineRecords);
@@ -2271,6 +2341,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         }
 
         bool hasHouseholdEconomy = TryScanHouseholdEconomy(entityManager, out HouseholdEconomyScanResult householdEconomy, out string? householdError);
+        bool hasLandValue = TryScanBuildingLandValue(entityManager, out LandValueScanResult landValue, out string? landValueError);
 
         var notes = new List<string>();
         if (hasHouseholdEconomy)
@@ -2286,22 +2357,33 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             notes.Add("citizen wealth metrics unavailable: " + (householdError ?? "household economy scan unavailable."));
         }
 
-        notes.Add("land value fields are currently unavailable pending stable ECS component mapping for policy-safe extraction.");
+        if (hasLandValue)
+        {
+            notes.Add("land value metrics are observed from Game.Net.LandValue on each building's road edge (same path as the in-game land value infoview).");
+            if (landValue.WasSampled)
+            {
+                notes.Add("land value scan used sampling guardrails; percentile outputs are sample-based estimates.");
+            }
+        }
+        else
+        {
+            notes.Add("land value metrics unavailable: " + (landValueError ?? "building land value scan unavailable."));
+        }
 
         return new EconomySignalsSummary
         {
             Status = ComputeStatus(
-                availableMetrics: (hasHouseholdEconomy ? 4 : 0),
+                availableMetrics: (hasHouseholdEconomy ? 4 : 0) + (hasLandValue ? 4 : 0),
                 expectedMetrics: 8),
-            LandValueAvg = null,
-            LandValueP25 = null,
-            LandValueP50 = null,
-            LandValueP75 = null,
+            LandValueAvg = hasLandValue ? landValue.Average : null,
+            LandValueP25 = hasLandValue ? landValue.P25 : null,
+            LandValueP50 = hasLandValue ? landValue.P50 : null,
+            LandValueP75 = hasLandValue ? landValue.P75 : null,
             CitizenWealthAvg = hasHouseholdEconomy ? householdEconomy.Average : null,
             CitizenWealthP25 = hasHouseholdEconomy ? householdEconomy.P25 : null,
             CitizenWealthP50 = hasHouseholdEconomy ? householdEconomy.P50 : null,
             CitizenWealthP75 = hasHouseholdEconomy ? householdEconomy.P75 : null,
-            SourceComponent = "ecs.economy_signals:Game.Citizens.Household.m_Resources|Game.Buildings.LandValue",
+            SourceComponent = "ecs.economy_signals:Game.Citizens.Household.m_Resources|Game.Net.LandValue|Game.Buildings.Building.m_RoadEdge",
             MetricMetadata = CreateEconomyMetricMetadata(),
             Notes = notes.ToArray()
         };
@@ -5757,6 +5839,94 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         return true;
     }
 
+    private bool TryScanBuildingLandValue(
+        EntityManager entityManager,
+        out LandValueScanResult result,
+        out string? error)
+    {
+        error = null;
+        result = default;
+
+        var landValues = new List<double>(capacity: 8192);
+        bool wasSampled = false;
+
+        try
+        {
+            var query = entityManager.CreateEntityQuery(
+                new EntityQueryDesc
+                {
+                    All = new[]
+                    {
+                        ComponentType.ReadOnly<Building>(),
+                        ComponentType.ReadOnly<BuildingCondition>()
+                    },
+                    None = new[]
+                    {
+                        ComponentType.ReadOnly<Deleted>(),
+                        ComponentType.ReadOnly<Temp>()
+                    }
+                });
+
+            NativeArray<Entity> entities = query.ToEntityArray(Allocator.TempJob);
+            try
+            {
+                int sampleStride = ComputeSamplingStride(entities.Length, _sampling.MaxWorkplaceEntities);
+                wasSampled = sampleStride > 1;
+                for (int i = 0; i < entities.Length; i += sampleStride)
+                {
+                    Entity buildingEntity = entities[i];
+                    Building building = entityManager.GetComponentData<Building>(buildingEntity);
+                    Entity roadEdge = building.m_RoadEdge;
+                    if (roadEdge == Entity.Null || !entityManager.Exists(roadEdge) || !entityManager.HasComponent<LandValue>(roadEdge))
+                    {
+                        continue;
+                    }
+
+                    LandValue landValue = entityManager.GetComponentData<LandValue>(roadEdge);
+                    if (float.IsNaN(landValue.m_LandValue) || float.IsInfinity(landValue.m_LandValue))
+                    {
+                        continue;
+                    }
+
+                    landValues.Add(landValue.m_LandValue);
+                }
+            }
+            finally
+            {
+                entities.Dispose();
+            }
+        }
+        catch (Exception ex)
+        {
+            result = default;
+            error = ex.GetType().Name + ": " + ex.Message;
+            return false;
+        }
+
+        if (landValues.Count == 0)
+        {
+            result = default;
+            error = "No building road-edge land values were available.";
+            return false;
+        }
+
+        landValues.Sort();
+        double sum = 0;
+        for (int i = 0; i < landValues.Count; i++)
+        {
+            sum += landValues[i];
+        }
+
+        double average = sum / landValues.Count;
+        result = new LandValueScanResult(
+            Average: Math.Round(average, 2, MidpointRounding.AwayFromZero),
+            P25: Math.Round(Percentile(landValues, 0.25), 2, MidpointRounding.AwayFromZero),
+            P50: Math.Round(Percentile(landValues, 0.50), 2, MidpointRounding.AwayFromZero),
+            P75: Math.Round(Percentile(landValues, 0.75), 2, MidpointRounding.AwayFromZero),
+            WasSampled: wasSampled);
+        return true;
+    }
+
     private static void AccumulateWorkplaceLevel(
         WorkplaceCounter[] levels,
         int level,
@@ -5924,22 +6094,22 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
                 MetricMeasurementKind.Observed,
                 MetricTimeBasis.Instant,
                 "land_value_index",
-                "Game.Buildings.LandValue"),
+                "Game.Net.LandValue|Game.Buildings.Building.m_RoadEdge"),
             ["land_value_p25"] = CreateMetricDefinition(
                 MetricMeasurementKind.Observed,
                 MetricTimeBasis.Instant,
                 "land_value_index",
-                "Game.Buildings.LandValue"),
+                "Game.Net.LandValue|Game.Buildings.Building.m_RoadEdge"),
             ["land_value_p50"] = CreateMetricDefinition(
                 MetricMeasurementKind.Observed,
                 MetricTimeBasis.Instant,
                 "land_value_index",
-                "Game.Buildings.LandValue"),
+                "Game.Net.LandValue|Game.Buildings.Building.m_RoadEdge"),
             ["land_value_p75"] = CreateMetricDefinition(
                 MetricMeasurementKind.Observed,
                 MetricTimeBasis.Instant,
                 "land_value_index",
-                "Game.Buildings.LandValue"),
+                "Game.Net.LandValue|Game.Buildings.Building.m_RoadEdge"),
             ["citizen_wealth_avg"] = CreateMetricDefinition(
                 MetricMeasurementKind.Observed,
                 MetricTimeBasis.Instant,
@@ -7219,6 +7389,24 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         public int IndustrialEmployeesTotal { get; }
         public int OfficeEmployeesTotal { get; }
         public WorkplaceLevelSummary[] Levels { get; }
+        public bool WasSampled { get; }
+    }
+
+    private readonly struct LandValueScanResult
+    {
+        public LandValueScanResult(double Average, double P25, double P50, double P75, bool WasSampled)
+        {
+            this.Average = Average;
+            this.P25 = P25;
+            this.P50 = P50;
+            this.P75 = P75;
+            this.WasSampled = WasSampled;
+        }
+
+        public double Average { get; }
+        public double P25 { get; }
+        public double P50 { get; }
+        public double P75 { get; }
         public bool WasSampled { get; }
     }
 

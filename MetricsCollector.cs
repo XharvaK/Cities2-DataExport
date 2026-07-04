@@ -578,6 +578,19 @@ public sealed class MetricsCollector
         MobilityLineRecord[] lines = mobility.Lines ?? Array.Empty<MobilityLineRecord>();
         if (lines.Length == 0)
         {
+            if (mobility.LinesTotal.HasValue && mobility.LinesTotal.Value == 0)
+            {
+                return new TransitPerformanceSemanticsSummary
+                {
+                    Status = MetricStatus.Ok,
+                    Notes = new[]
+                    {
+                        "no transit lines in city; transit performance semantics are not applicable.",
+                        "derive this group only from mobility.lines[]; do not fall back to transport-building guesses."
+                    }
+                };
+            }
+
             return new TransitPerformanceSemanticsSummary
             {
                 Status = MetricStatus.Partial,
