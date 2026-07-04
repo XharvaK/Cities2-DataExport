@@ -233,17 +233,45 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         AddResultNotes(notes, "building_count", buildingCount);
         AddResultNotes(notes, "district_count", districtCount);
 
+        string? cityName = TryResolveCityName(notes);
+
         return new CitySummary
         {
             Status = ComputeStatus(
                 availableMetrics: CountPresent(buildingCount.Count) + CountPresent(districtCount.Count),
                 expectedMetrics: 2),
-            CityName = null,
+            CityName = cityName,
             BuildingCount = buildingCount.Count,
             DistrictCount = districtCount.Count,
             SourceComponent = BuildSourceComponent("ecs.city", buildingCount, districtCount),
             Notes = notes.ToArray()
         };
+    }
+
+    private string? TryResolveCityName(List<string> notes)
+    {
+        World? world = _getWorld();
+        if (world == null || !world.IsCreated)
+        {
+            notes.Add("city_name unavailable: runtime World is unavailable.");
+            return null;
+        }
+
+        CityConfigurationSystem? cityConfiguration = world.GetExistingSystemManaged<CityConfigurationSystem>();
+        if (cityConfiguration == null)
+        {
+            notes.Add("city_name unavailable: CityConfigurationSystem is unavailable.");
+            return null;
+        }
+
+        string? cityName = cityConfiguration.cityName;
+        if (string.IsNullOrWhiteSpace(cityName))
+        {
+            notes.Add("city_name is empty in CityConfigurationSystem.");
+            return null;
+        }
+
+        return cityName.Trim();
     }
 
     public PopulationSummary CollectPopulationSummary()
