@@ -29,7 +29,7 @@ namespace CS2DataExport
                 return;
             }
 
-            _settings = new ExportSettings();
+            _settings = ExportSettings.FromEnvironment();
             _transitAccessGapCaptureCoordinator = new TransitAccessGapCaptureCoordinator(new TransitAccessGapAnalyzer());
             _transitAccessGapRuntimeObserver = new TransitAccessGapRuntimeObserver(_transitAccessGapCaptureCoordinator);
             _dataExportSystem = new DataExportSystem(
@@ -61,7 +61,7 @@ namespace CS2DataExport
 
             SafeLog(
                 "loaded: enabled=" + _settings.ExportEnabled +
-                ", interval_min=" + _settings.EffectiveIntervalMinutes +
+                ", interval_sec=" + _settings.EffectiveIntervalSeconds +
                 ", retention=" + _settings.EffectiveRetentionCount +
                 ", output='" + _settings.ResolveOutputRoot() + "'");
         }

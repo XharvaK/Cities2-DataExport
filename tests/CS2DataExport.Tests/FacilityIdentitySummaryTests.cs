@@ -118,5 +118,7 @@ public sealed class FacilityIdentitySummaryTests
         {
             Status = MetricStatus.Unavailable
         };
+
+        public UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
     }
 }

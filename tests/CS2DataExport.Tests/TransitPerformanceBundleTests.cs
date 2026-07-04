@@ -60,6 +60,8 @@ public sealed class TransitPerformanceBundleTests
             Status = MetricStatus.Unavailable
         };
 
+        public UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
+
         public MobilitySummary CollectMobilitySummary() => new()
         {
             Status = MetricStatus.Ok,

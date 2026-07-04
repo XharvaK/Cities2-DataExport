@@ -1,6 +1,11 @@
 # CitySnapshotV1
 
-Schema version: `2.7.0`
+Schema version: `2.8.0`
+
+`2.8.0` is an additive refresh over `2.7.0`:
+- adds `utility_pressure_semantics` for water/sewage capacity, fulfillment, outside trade, and pressure flags
+- populates `external_connections.service_trade` from `WaterTradeSystem` monthly import/export snapshots when available
+- default export interval is **10 seconds** (was 60)
 
 `2.7.0` is an additive refresh over `2.6.0`:
 - adds `official_city_statistics` for official aggregate counters from managed game systems and city singleton components
@@ -39,6 +44,7 @@ Schema version: `2.7.0`
 - `city` (`object`)
 - `population` (`object`)
 - `official_city_statistics` (`object`)
+- `utility_pressure_semantics` (`object`)
 - `education` (`object`)
 - `transport_proxies` (`object`)
 - `workforce` (`object`)

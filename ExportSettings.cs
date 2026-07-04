@@ -13,10 +13,12 @@ public sealed class ExportSettings
 {
     public const bool DefaultExportEnabled = true;
     public const int DefaultIntervalMinutes = 10;
+    public const int DefaultIntervalSeconds = 10;
     public const int DefaultRetentionCount = 500;
 
     public bool ExportEnabled { get; set; } = DefaultExportEnabled;
     public int IntervalMinutes { get; set; } = DefaultIntervalMinutes;
+    public int IntervalSeconds { get; set; } = DefaultIntervalSeconds;
     public int RetentionCount { get; set; } = DefaultRetentionCount;
     public string OutputRootOverride { get; set; } = string.Empty;
     public TransitTripCaptureMode TransitTripCaptureMode { get; set; } = TransitTripCaptureMode.Off;
@@ -27,6 +29,8 @@ public sealed class ExportSettings
     public int TransitTripCaptureMaxHotspots { get; set; } = 50;
 
     public int EffectiveIntervalMinutes => ClampInt(IntervalMinutes, 1, 720);
+
+    public int EffectiveIntervalSeconds => ClampInt(IntervalSeconds, 10, 3600);
 
     public int EffectiveRetentionCount => ClampInt(RetentionCount, 1, 5000);
 
@@ -65,6 +69,19 @@ public sealed class ExportSettings
     public string ResolveLatestFilePath()
     {
         return Path.Combine(ResolveOutputRoot(), "latest.json");
+    }
+
+    public static ExportSettings FromEnvironment()
+    {
+        var settings = new ExportSettings();
+        string? intervalSeconds = Environment.GetEnvironmentVariable("CS2DATAEXPORT_INTERVAL_SECONDS");
+        if (!string.IsNullOrWhiteSpace(intervalSeconds)
+            && int.TryParse(intervalSeconds, out int parsedSeconds))
+        {
+            settings.IntervalSeconds = parsedSeconds;
+        }
+
+        return settings;
     }
 
     private static int ClampInt(int value, int min, int max)

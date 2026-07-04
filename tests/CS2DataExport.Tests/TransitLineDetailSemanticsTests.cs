@@ -152,5 +152,7 @@ public sealed class TransitLineDetailSemanticsTests
         {
             Status = MetricStatus.Unavailable
         };
+
+        public UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
     }
 }

@@ -24,6 +24,7 @@ public interface IMetricProbe
     TransitLineDetailSemanticsSummary CollectTransitLineDetailSemanticsSummary();
     TransitAccessGapSemanticsSummary CollectTransitAccessGapSemanticsSummary();
     OfficialCityStatisticsSummary CollectOfficialCityStatisticsSummary();
+    UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummary();
 }
 
 public sealed class DefaultMetricProbe : IMetricProbe
@@ -246,6 +247,18 @@ public sealed class DefaultMetricProbe : IMetricProbe
             }
         };
     }
+
+    public UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummary()
+    {
+        return new UtilityPressureSemanticsSummary
+        {
+            Status = MetricStatus.Unavailable,
+            Notes = new[]
+            {
+                "Utility pressure semantics provider is not wired in this build."
+            }
+        };
+    }
 }
 
 public sealed class MetricsCollector
@@ -280,6 +293,9 @@ public sealed class MetricsCollector
         var officialCityStatistics = SafeCollect(
             _probe.CollectOfficialCityStatisticsSummary,
             CreateUnavailableOfficialCityStatistics);
+        var utilityPressureSemantics = SafeCollect(
+            _probe.CollectUtilityPressureSemanticsSummary,
+            CreateUnavailableUtilityPressureSemantics);
 
         var metricStatus = new SortedDictionary<string, string>(StringComparer.Ordinal)
         {
@@ -301,14 +317,15 @@ public sealed class MetricsCollector
             ["transit_performance_semantics"] = transitPerformanceSemantics.Status,
             ["transit_line_detail_semantics"] = transitLineDetailSemantics.Status,
             ["transit_access_gap_semantics"] = transitAccessGapSemantics.Status,
-            ["official_city_statistics"] = officialCityStatistics.Status
+            ["official_city_statistics"] = officialCityStatistics.Status,
+            ["utility_pressure_semantics"] = utilityPressureSemantics.Status
         };
 
         var metaNotes = BuildMetaNotes(metricStatus);
 
         return new CitySnapshotV1
         {
-            SchemaVersion = "2.7.0",
+            SchemaVersion = "2.8.0",
             ExportedAtUtc = exportedAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
             GameBuild = gameBuild,
             ModVersion = modVersion,
@@ -331,6 +348,7 @@ public sealed class MetricsCollector
             TransitLineDetailSemantics = transitLineDetailSemantics,
             TransitAccessGapSemantics = transitAccessGapSemantics,
             OfficialCityStatistics = officialCityStatistics,
+            UtilityPressureSemantics = utilityPressureSemantics,
             Meta = new SnapshotMeta
             {
                 Source = "ecs_observed",
@@ -356,7 +374,7 @@ public sealed class MetricsCollector
     {
         var notes = new List<string>
         {
-            "schema 2.7.0 exports observed and derived metrics only."
+            "schema 2.8.0 exports observed and derived metrics only."
         };
 
         foreach (var pair in metricStatus)
@@ -531,6 +549,15 @@ public sealed class MetricsCollector
         {
             Status = MetricStatus.Partial,
             Notes = new[] { $"official city statistics probe failed: {exception.Message}" }
+        };
+    }
+
+    private static UtilityPressureSemanticsSummary CreateUnavailableUtilityPressureSemantics(Exception exception)
+    {
+        return new UtilityPressureSemanticsSummary
+        {
+            Status = MetricStatus.Partial,
+            Notes = new[] { $"utility pressure semantics probe failed: {exception.Message}" }
         };
     }
 

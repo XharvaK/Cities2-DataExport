@@ -129,5 +129,7 @@ public sealed class CompanyServiceSemanticsSummaryTests
         {
             Status = MetricStatus.Unavailable
         };
+
+        public UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
     }
 }

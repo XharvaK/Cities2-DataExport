@@ -12,7 +12,7 @@ When the mod is enabled, it periodically exports city data to your local `ModsDa
 
 By default it:
 
-- exports every 10 minutes
+- exports every 10 seconds (override via `CS2DATAEXPORT_INTERVAL_SECONDS`)
 - keeps a rolling history of snapshots
 - writes a `latest.json` file for tools that only need the newest city state
 - leaves unavailable or unproven metrics in the file as `null` with status notes instead of guessing
@@ -38,7 +38,7 @@ snapshots\<timestamp>.json
 
 ## What Is In The Export
 
-Current schema version: `2.7.0`
+Current schema version: `2.8.0`
 
 Top-level data groups include:
 
@@ -186,7 +186,7 @@ More detailed Windows install notes are in [INSTALL.md](INSTALL.md).
 
 Cities: Skylines II patches can change internal ECS components, systems, or modding toolchain behavior. After a game update, rebuild the mod and check that `latest.json` is still being written before relying on the export.
 
-The current public schema target is `2.7.0`. Additive fields may appear over time. Breaking schema changes should be reflected by a schema version update.
+The current public schema target is `2.8.0`. Additive fields may appear over time. Breaking schema changes should be reflected by a schema version update.
 
 ## Status
 

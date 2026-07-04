@@ -89,7 +89,7 @@ public sealed class DataExportSystem
             var snapshot = _collector.CollectSnapshot(utcNow, _modVersion, _gameBuild);
             var writeResult = _writer.WriteSnapshot(snapshot, utcNow, _settings);
 
-            _nextDueUtc = AlignToNextDueBoundary(utcNow, _settings.EffectiveIntervalMinutes);
+            _nextDueUtc = AlignToNextDueBoundary(utcNow, _settings.EffectiveIntervalSeconds);
 
             if (finalizeCompletedCapture)
             {
@@ -120,7 +120,7 @@ public sealed class DataExportSystem
         }
         catch (Exception ex)
         {
-            _nextDueUtc = AlignToNextDueBoundary(utcNow, _settings.EffectiveIntervalMinutes);
+            _nextDueUtc = AlignToNextDueBoundary(utcNow, _settings.EffectiveIntervalSeconds);
             _log($"export failed: {ex}");
 
             return new ExportTickResult(
@@ -133,11 +133,11 @@ public sealed class DataExportSystem
         }
     }
 
-    private static DateTimeOffset AlignToNextDueBoundary(DateTimeOffset utcNow, int intervalMinutes)
+    private static DateTimeOffset AlignToNextDueBoundary(DateTimeOffset utcNow, int intervalSeconds)
     {
-        var nowMinutes = utcNow.ToUnixTimeSeconds() / 60;
-        var nextWindowMinutes = ((nowMinutes / intervalMinutes) + 1) * intervalMinutes;
-        return DateTimeOffset.FromUnixTimeSeconds(nextWindowMinutes * 60);
+        long nowSeconds = utcNow.ToUnixTimeSeconds();
+        long nextBoundary = ((nowSeconds / intervalSeconds) + 1) * intervalSeconds;
+        return DateTimeOffset.FromUnixTimeSeconds(nextBoundary);
     }
 
     private bool ShouldStartTransitCaptureWindow()

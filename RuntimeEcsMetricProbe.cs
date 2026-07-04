@@ -25,7 +25,7 @@ using UnityEngine;
 
 namespace CS2DataExport;
 
-public sealed class RuntimeEcsMetricProbe : IMetricProbe
+public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 {
     private static readonly string[] s_cityBuildingCandidates =
     {
@@ -2292,20 +2292,39 @@ public sealed class RuntimeEcsMetricProbe : IMetricProbe
 
         var notes = new List<string>
         {
-            "external-connection value metrics remain unavailable until stable ECS mappings for trade value aggregates are verified.",
-            "service_trade fields target electricity/water/sewage import-export values when a validated component contract is available."
+            "service_trade uses WaterTradeSystem monthly import/export snapshots when available.",
+            "resource import/export totals remain unavailable until stable ECS mappings for trade value aggregates are verified."
         };
         AddResultNotes(notes, "outside_connection_entities", outsideConnectionCount);
 
+        UtilityPressureSemanticsSummary utilityPressure = CollectUtilityPressureSemanticsSummary();
+        SortedDictionary<string, double?>? serviceTrade = UtilityPressureSemanticsCalculator.BuildServiceTrade(
+            utilityPressure.Water,
+            utilityPressure.Sewage,
+            utilityPressure.Electricity);
+
+        string status = serviceTrade != null
+            ? MetricStatus.Ok
+            : outsideConnectionCount.Count.HasValue
+                ? MetricStatus.Partial
+                : MetricStatus.Unavailable;
+
+        if (serviceTrade == null && utilityPressure.Status != MetricStatus.Unavailable)
+        {
+            notes.Add("utility systems are present but no monthly service trade values were resolved.");
+        }
+
         return new ExternalConnectionsSummary
         {
-            Status = outsideConnectionCount.Count.HasValue ? MetricStatus.Partial : MetricStatus.Unavailable,
+            Status = status,
             ImportsTotalValue = null,
             ExportsTotalValue = null,
             ImportsByResource = null,
             ExportsByResource = null,
-            ServiceTrade = null,
-            SourceComponent = BuildSourceComponent("ecs.external_connections", outsideConnectionCount),
+            ServiceTrade = serviceTrade,
+            SourceComponent = BuildSourceComponent(
+                "ecs.external_connections:Game.Simulation.WaterTradeSystem",
+                outsideConnectionCount),
             MetricMetadata = CreateExternalConnectionsMetricMetadata(),
             Notes = notes.ToArray()
         };

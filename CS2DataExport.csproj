@@ -75,6 +75,8 @@
 	<ItemGroup Condition="'$(EnableDefaultCompileItems)' == 'false'">
 		<Compile Remove="RuntimeEcsMetricProbe.cs" />
 		<Compile Include="RuntimeEcsMetricProbe.cs" />
+		<Compile Include="RuntimeEcsMetricProbe.Utilities.cs" />
+		<Compile Include="UtilityPressureSemantics.cs" />
 	</ItemGroup>
 
 </Project>

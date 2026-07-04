@@ -12,6 +12,7 @@ public sealed class DataExportSystemTransitCaptureTests
         var settings = new ExportSettings
         {
             ExportEnabled = true,
+            IntervalSeconds = 600,
             IntervalMinutes = 10,
             OutputRootOverride = CreateTempOutputRoot(),
             TransitTripCaptureMode = TransitTripCaptureMode.NextExportWindow
@@ -44,6 +45,7 @@ public sealed class DataExportSystemTransitCaptureTests
         var settings = new ExportSettings
         {
             ExportEnabled = true,
+            IntervalSeconds = 600,
             IntervalMinutes = 10,
             OutputRootOverride = CreateTempOutputRoot(),
             TransitTripCaptureMode = TransitTripCaptureMode.NextExportWindow,
@@ -112,5 +114,6 @@ public sealed class DataExportSystemTransitCaptureTests
         public TransitLineDetailSemanticsSummary CollectTransitLineDetailSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
         public TransitAccessGapSemanticsSummary CollectTransitAccessGapSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
         public OfficialCityStatisticsSummary CollectOfficialCityStatisticsSummary() => new() { Status = MetricStatus.Unavailable };
+        public UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
     }
 }

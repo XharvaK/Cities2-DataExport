@@ -81,5 +81,7 @@ public sealed class HousingLaborRuntimeBundleTests
         {
             Status = MetricStatus.Unavailable
         };
+
+        public UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
     }
 }
