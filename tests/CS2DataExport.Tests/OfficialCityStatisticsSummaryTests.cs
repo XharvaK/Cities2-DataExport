@@ -15,7 +15,7 @@ public sealed class OfficialCityStatisticsSummaryTests
             modVersion: "1.0.0",
             gameBuild: "test-build");
 
-        Assert.Equal("2.8.0", snapshot.SchemaVersion);
+        Assert.Equal("2.9.0", snapshot.SchemaVersion);
         Assert.Equal(MetricStatus.Ok, snapshot.OfficialCityStatistics.Status);
         Assert.Equal(1400000, snapshot.OfficialCityStatistics.Finance.Money);
         Assert.Equal(128, snapshot.OfficialCityStatistics.TransportTotals.PassengerCountBus);
@@ -28,7 +28,7 @@ public sealed class OfficialCityStatisticsSummaryTests
     {
         var snapshot = new CitySnapshotV1
         {
-            SchemaVersion = "2.8.0",
+            SchemaVersion = "2.9.0",
             OfficialCityStatistics = new OfficialCityStatisticsSummary
             {
                 Status = MetricStatus.Ok,

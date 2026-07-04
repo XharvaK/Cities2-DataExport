@@ -15,7 +15,7 @@ public sealed class TransitAccessGapBundleTests
             modVersion: "1.0.0",
             gameBuild: "test-build");
 
-        Assert.Equal("2.8.0", snapshot.SchemaVersion);
+        Assert.Equal("2.9.0", snapshot.SchemaVersion);
         Assert.Equal(MetricStatus.Ok, snapshot.TransitAccessGapSemantics.Status);
         Assert.Equal(2, snapshot.TransitAccessGapSemantics.Hotspots.Length);
         Assert.Equal("next_export_window", snapshot.TransitAccessGapSemantics.CaptureContext.CaptureMode);

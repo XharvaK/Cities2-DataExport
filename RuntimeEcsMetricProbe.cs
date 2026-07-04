@@ -383,11 +383,16 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         OfficialCitySingletonValues singletonValues = ReadOfficialCitySingletonValues(entityManager, notes);
         DateTime? gameDate = timeSystem?.GetCurrentDateTime();
+        int? officialPopulation = GetOfficialStatistic(statistics, StatisticType.Population);
 
         int availableSystemCount = 1
             + (citySystem == null ? 0 : 1)
             + (timeSystem == null ? 0 : 1)
             + (simulationSystem == null ? 0 : 1);
+
+        notes.Add("finance.income and finance.expense sum all IncomeSource/ExpenseSource parameters.");
+        notes.Add("social.wellbeing and social.health are 0-100 averages (statistic sum / official population).");
+        notes.Add("taxes.*_taxable_income reads parameter 0 only; sector totals may be understated when sub-parameters exist.");
 
         return new OfficialCityStatisticsSummary
         {
@@ -408,8 +413,8 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             Finance = new OfficialFinanceStatistics
             {
                 Money = citySystem?.moneyAmount,
-                Income = GetOfficialStatistic(statistics, StatisticType.Income),
-                Expense = GetOfficialStatistic(statistics, StatisticType.Expense),
+                Income = GetOfficialStatisticSum(statistics, StatisticType.Income, (int)IncomeSource.Count),
+                Expense = GetOfficialStatisticSum(statistics, StatisticType.Expense, (int)ExpenseSource.Count),
                 Trade = GetOfficialStatistic(statistics, StatisticType.Trade)
             },
             Taxes = new OfficialTaxStatistics
@@ -421,7 +426,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             },
             PopulationFlow = new OfficialPopulationFlowStatistics
             {
-                Population = GetOfficialStatistic(statistics, StatisticType.Population),
+                Population = officialPopulation,
                 PopulationWithMoveIn = singletonValues.PopulationWithMoveIn,
                 CitizensMovedIn = GetOfficialStatistic(statistics, StatisticType.CitizensMovedIn),
                 CitizensMovedAway = GetOfficialStatistic(statistics, StatisticType.CitizensMovedAway),
@@ -430,8 +435,8 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             },
             Social = new OfficialSocialStatistics
             {
-                Wellbeing = GetOfficialStatistic(statistics, StatisticType.Wellbeing),
-                Health = GetOfficialStatistic(statistics, StatisticType.Health),
+                Wellbeing = GetOfficialStatisticPerCapita(statistics, StatisticType.Wellbeing, officialPopulation),
+                Health = GetOfficialStatisticPerCapita(statistics, StatisticType.Health, officialPopulation),
                 WellbeingLevel = GetOfficialStatistic(statistics, StatisticType.WellbeingLevel),
                 HealthLevel = GetOfficialStatistic(statistics, StatisticType.HealthLevel),
                 HomelessCount = GetOfficialStatistic(statistics, StatisticType.HomelessCount),
@@ -6307,16 +6312,63 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         }
     }
 
-    private static int? GetOfficialStatistic(CityStatisticsSystem statistics, StatisticType type)
+    private static int? GetOfficialStatistic(CityStatisticsSystem statistics, StatisticType type, int parameter = 0)
     {
         try
         {
-            return statistics.GetStatisticValue(type);
+            return statistics.GetStatisticValue(type, parameter);
         }
         catch
         {
             return null;
         }
+    }
+
+    private static int? GetOfficialStatisticSum(CityStatisticsSystem statistics, StatisticType type, int parameterCount)
+    {
+        try
+        {
+            long total = 0;
+            for (int i = 0; i < parameterCount; i++)
+            {
+                total += statistics.GetStatisticValue(type, i);
+            }
+
+            if (total > int.MaxValue)
+            {
+                return int.MaxValue;
+            }
+
+            if (total < int.MinValue)
+            {
+                return int.MinValue;
+            }
+
+            return (int)total;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static double? GetOfficialStatisticPerCapita(
+        CityStatisticsSystem statistics,
+        StatisticType type,
+        int? population)
+    {
+        if (!population.HasValue || population.Value <= 0)
+        {
+            return null;
+        }
+
+        int? sum = GetOfficialStatistic(statistics, type);
+        if (!sum.HasValue)
+        {
+            return null;
+        }
+
+        return Math.Round(sum.Value / (double)population.Value, 1, MidpointRounding.AwayFromZero);
     }
 
     private static int CountPresent(int? value)

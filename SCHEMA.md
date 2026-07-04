@@ -1,6 +1,11 @@
 # CitySnapshotV1
 
-Schema version: `2.8.0`
+Schema version: `2.9.0`
+
+`2.9.0` is an additive refresh over `2.8.0`:
+- `official_city_statistics.finance.income` and `finance.expense` now sum all `IncomeSource` / `ExpenseSource` parameters (previously parameter 0 only, so expense was often 0)
+- `official_city_statistics.social.wellbeing` and `social.health` are now 0-100 averages (`statistic sum / official population`; previously raw population-weighted sums)
+- `taxes.*_taxable_income` still reads parameter 0 only; sector totals may be understated when sub-parameters exist
 
 `2.8.0` is an additive refresh over `2.7.0`:
 - adds `utility_pressure_semantics` for water/sewage capacity, fulfillment, outside trade, and pressure flags
@@ -404,15 +409,18 @@ Unavailable metrics remain present with `null`.
 
 - `official_finance_statistics`
   - `money`, `income`, `expense`, `trade`
+  - `income` / `expense` (`2.9.0+`): monthly totals summed across all `IncomeSource` / `ExpenseSource` parameters
 
 - `official_tax_statistics`
   - `residential_taxable_income`, `commercial_taxable_income`, `industrial_taxable_income`, `office_taxable_income`
+  - parameter 0 only; may understate sector totals when sub-parameters exist
 
 - `official_population_flow_statistics`
   - `population`, `population_with_move_in`, `citizens_moved_in`, `citizens_moved_away`, `birth_rate`, `death_rate`
 
 - `official_social_statistics`
   - `wellbeing`, `health`, `wellbeing_level`, `health_level`, `homeless_count`, `crime_rate`, `crime_count`, `escaped_arrest_count`, `collected_mail`, `delivered_mail`
+  - `wellbeing` / `health` (`2.9.0+`): 0-100 citizen averages; pre-2.9.0 exports used population-weighted sums
 
 - `official_tourism_statistics`
   - `tourist_count`, `tourist_income`, `lodging_used`, `lodging_total`, `current_tourists`, `average_tourists`, `attractiveness`

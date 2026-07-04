@@ -39,7 +39,7 @@ public static class MetricTimeBasis
 public sealed class CitySnapshotV1
 {
     [JsonPropertyName("schema_version")]
-    public string SchemaVersion { get; init; } = "2.8.0";
+    public string SchemaVersion { get; init; } = "2.9.0";
 
     [JsonPropertyName("exported_at_utc")]
     public string ExportedAtUtc { get; init; } = string.Empty;
