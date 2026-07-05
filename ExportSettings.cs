@@ -12,9 +12,9 @@ public enum TransitTripCaptureMode
 public sealed class ExportSettings
 {
     public const bool DefaultExportEnabled = true;
-    public const int DefaultIntervalMinutes = 10;
-    public const int DefaultIntervalSeconds = 10;
-    public const int DefaultRetentionCount = 500;
+    public const int DefaultIntervalMinutes = 5;
+    public const int DefaultIntervalSeconds = 5;
+    public const int DefaultRetentionCount = 1000;
 
     public bool ExportEnabled { get; set; } = DefaultExportEnabled;
     public int IntervalMinutes { get; set; } = DefaultIntervalMinutes;
@@ -30,7 +30,7 @@ public sealed class ExportSettings
 
     public int EffectiveIntervalMinutes => ClampInt(IntervalMinutes, 1, 720);
 
-    public int EffectiveIntervalSeconds => ClampInt(IntervalSeconds, 10, 3600);
+    public int EffectiveIntervalSeconds => ClampInt(IntervalSeconds, 5, 3600);
 
     public int EffectiveRetentionCount => ClampInt(RetentionCount, 1, 5000);
 

@@ -83,7 +83,7 @@ $log = Join-Path $env:USERPROFILE 'AppData\LocalLow\Colossal Order\Cities Skylin
 Get-Content -Tail 120 -LiteralPath $log
 ```
 
-In logs, verify `loaded:` shows `interval_min=10` unless intentionally overridden.
+In logs, verify `loaded:` shows `interval_sec=5` unless intentionally overridden.
 
 ## Command Prompt alternative
 

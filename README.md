@@ -12,7 +12,7 @@ When the mod is enabled, it periodically exports city data to your local `ModsDa
 
 By default it:
 
-- exports every 10 seconds (override via `CS2DATAEXPORT_INTERVAL_SECONDS`)
+- exports every 5 seconds (override via `CS2DATAEXPORT_INTERVAL_SECONDS`)
 - keeps a rolling history of snapshots
 - writes a `latest.json` file for tools that only need the newest city state
 - leaves unavailable or unproven metrics in the file as `null` with status notes instead of guessing
