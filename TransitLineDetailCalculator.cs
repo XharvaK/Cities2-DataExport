@@ -82,8 +82,11 @@ public static class TransitLineDetailCalculator
 
             if (input.TicksPerDay.HasValue && input.TicksPerDay.Value > 0)
             {
+                // Game minutes: tick fraction of an in-game day × 1440. XTM's UI helper
+                // durationToGameMinutes() multiplies by 60 again (86400/ticksPerDay); that
+                // inflates values ~60× and is not used here.
                 expectedRoundTripMinutes = Math.Round(
-                    expectedRoundTripTicks.Value * 86400.0 / input.TicksPerDay.Value,
+                    expectedRoundTripTicks.Value * 1440.0 / input.TicksPerDay.Value,
                     2,
                     MidpointRounding.AwayFromZero);
             }

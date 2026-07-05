@@ -1550,7 +1550,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             {
                 "line detail semantics mirror XTM's live line panel data path: route waypoints, route vehicles, route segments, waiting passengers, path information, vehicle capacity, and odometer.",
                 "passengers into vehicles is exported as onboard_passengers_in_vehicles because XTM's UI computes it from current vehicle load, not a cumulative boarding counter.",
-                "expected_round_trip_time_minutes uses XTM's formula with the current runtime ticks-per-day when available, otherwise the default 262144 ticks/day."
+                "expected_round_trip_time_minutes uses XTM's segment×π+stops×4 tick estimate, converted with ticks×1440/ticks_per_day (XTM's UI helper wrongly multiplies by 60 again)."
             };
 
             if (usedXtmAcronym)

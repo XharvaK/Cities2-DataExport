@@ -932,7 +932,7 @@
         "average_vehicle_occupancy_percent": 51.88,
         "average_stop_occupancy_percent": 52.23,
         "expected_round_trip_time_ticks": 916.41,
-        "expected_round_trip_time_minutes": 302.04,
+        "expected_round_trip_time_minutes": 5.03,
         "next_maintenance_vehicle_entity_index": 501,
         "next_maintenance_vehicle_entity_version": 1,
         "next_maintenance_distance_m": 7100,

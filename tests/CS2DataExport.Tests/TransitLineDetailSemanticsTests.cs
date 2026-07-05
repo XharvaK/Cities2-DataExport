@@ -82,7 +82,7 @@ public sealed class TransitLineDetailSemanticsTests
         Assert.Equal(40.63, result.AverageVehicleOccupancyPercent);
         Assert.Equal(9.38, result.AverageStopOccupancyPercent);
         Assert.Equal(3153.59, result.ExpectedRoundTripTimeTicks);
-        Assert.Equal(1039.39, result.ExpectedRoundTripTimeMinutes);
+        Assert.Equal(17.32, result.ExpectedRoundTripTimeMinutes);
         Assert.Equal(11, result.NextMaintenanceVehicleEntityIndex);
         Assert.Equal(800, result.NextMaintenanceDistanceMeters);
     }
