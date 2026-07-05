@@ -39,7 +39,7 @@ public static class MetricTimeBasis
 public sealed class CitySnapshotV1
 {
     [JsonPropertyName("schema_version")]
-    public string SchemaVersion { get; init; } = "2.9.0";
+    public string SchemaVersion { get; init; } = "2.10.0";
 
     [JsonPropertyName("exported_at_utc")]
     public string ExportedAtUtc { get; init; } = string.Empty;
@@ -461,6 +461,12 @@ public sealed class TransportProxySummary : MetricGroup
 
     [JsonPropertyName("congestion_index_0_to_1")]
     public double? CongestionIndex0To1 { get; init; }
+
+    [JsonPropertyName("congestion_blocked_vehicle_entities")]
+    public int? CongestionBlockedVehicleEntities { get; init; }
+
+    [JsonPropertyName("bottleneck_entities")]
+    public int? BottleneckEntities { get; init; }
 
     [JsonPropertyName("source_component")]
     public string SourceComponent { get; init; } = "ecs.transport_proxy";

@@ -1,6 +1,10 @@
 # CitySnapshotV1
 
-Schema version: `2.9.0`
+Schema version: `2.10.0`
+
+`2.10.0` is an additive refresh over `2.9.0`:
+- `transport_proxies.congestion_index_0_to_1` now derives from slow `Game.Vehicles.Blocker` + `Game.Vehicles.Vehicle` entities (`m_MaxSpeed < 6`) divided by `road_vehicle_entities` (replaces unresolved `TrafficJam` / `Congestion` tags)
+- adds `transport_proxies.congestion_blocked_vehicle_entities` and `transport_proxies.bottleneck_entities` (`Game.Net.Bottleneck` count) for transparency
 
 `2.9.0` is an additive refresh over `2.8.0`:
 - `official_city_statistics.finance.income` and `finance.expense` now sum all `IncomeSource` / `ExpenseSource` parameters (previously parameter 0 only, so expense was often 0)
@@ -124,7 +128,9 @@ Unavailable metrics remain present with `null`.
   - `road_vehicle_entities` (`number|null`)
   - `public_transport_vehicle_entities` (`number|null`)
   - `active_transport_lines` (`number|null`)
-  - `congestion_index_0_to_1` (`number|null`, `0..1`)
+  - `congestion_index_0_to_1` (`number|null`, `0..1`, slow `Blocker+Vehicle` entities / road vehicles)
+  - `congestion_blocked_vehicle_entities` (`number|null`, `count`, `2.10.0+`)
+  - `bottleneck_entities` (`number|null`, `count`, `2.10.0+`)
   - `source_component` (`string`)
 
 - `workforce`

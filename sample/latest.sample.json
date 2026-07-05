@@ -1,5 +1,5 @@
 {
-  "schema_version": "2.9.0",
+  "schema_version": "2.10.0",
   "exported_at_utc": "2026-02-22T22:15:00.0000000Z",
   "game_build": "1.4.0f1",
   "mod_version": "2.0.0",
@@ -258,15 +258,17 @@
     "source_component": "ecs.education:Game.Citizens.Citizen|Game.Citizens.Worker"
   },
   "transport_proxies": {
-    "status": "partial",
+    "status": "ok",
     "notes": [
-      "congestion index may be unavailable when congestion ECS mappings are unresolved."
+      "congestion_index_0_to_1 is slow Blocker+Vehicle entities (m_MaxSpeed < 6) divided by road vehicle entities."
     ],
     "road_vehicle_entities": 28542,
     "public_transport_vehicle_entities": 1462,
     "active_transport_lines": 214,
-    "congestion_index_0_to_1": null,
-    "source_component": "ecs.transport_proxy:Game.Vehicles.Vehicle|Game.Vehicles.PublicTransport|Game.Routes.TransportLine"
+    "congestion_index_0_to_1": 0.042,
+    "congestion_blocked_vehicle_entities": 1199,
+    "bottleneck_entities": 12,
+    "source_component": "ecs.transport_proxy:Game.Vehicles.Vehicle|Game.Vehicles.PublicTransport|Game.Routes.TransportLine|Game.Vehicles.Blocker|Game.Net.Bottleneck"
   },
   "workforce": {
     "status": "ok",

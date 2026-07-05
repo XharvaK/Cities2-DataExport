@@ -113,10 +113,9 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         "Game.Transport.CargoLine"
     };
 
-    private static readonly string[] s_transportCongestionCandidates =
+    private static readonly string[] s_transportCongestionBlockerCandidates =
     {
-        "Game.Vehicles.TrafficJam",
-        "Game.Vehicles.Congestion"
+        "Game.Vehicles.Blocker"
     };
 
     private static readonly string[] s_modeBusCandidates = { "Game.Vehicles.Bus" };
@@ -690,22 +689,46 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         CountResult roadVehicles = TryCountByAll(entityManager, s_transportRoadVehicleCandidates);
         CountResult publicVehicles = TryCountByAll(entityManager, s_transportPublicVehicleCandidates);
         CountResult activeLines = TryCountByAll(entityManager, s_transportLineCandidates);
-        CountResult congestion = TryCountByAll(entityManager, s_transportCongestionCandidates);
+
+        int? slowBlockedVehicles = null;
+        int? bottleneckEntities = null;
+        bool usedBlockerSpeedThreshold = false;
+        string? congestionScanNote = null;
+
+        if (TryCountSlowBlockedVehicles(entityManager, out int blockedWithSpeed, out string? speedScanError))
+        {
+            slowBlockedVehicles = blockedWithSpeed;
+            usedBlockerSpeedThreshold = true;
+        }
+        else if (!string.IsNullOrWhiteSpace(speedScanError))
+        {
+            congestionScanNote = speedScanError;
+            CountResult blockerFallback = TryCountByAll(entityManager, s_transportCongestionBlockerCandidates);
+            if (blockerFallback.Count.HasValue)
+            {
+                slowBlockedVehicles = blockerFallback.Count.Value;
+                congestionScanNote = "congestion fallback uses Blocker entity count without m_MaxSpeed threshold.";
+            }
+        }
+
+        if (TryCountBottleneckEntities(entityManager, out int bottlenecks, out string? bottleneckError)
+            && bottlenecks >= 0)
+        {
+            bottleneckEntities = bottlenecks;
+        }
+        else if (!string.IsNullOrWhiteSpace(bottleneckError))
+        {
+            congestionScanNote ??= bottleneckError;
+        }
 
         double? congestionIndex = null;
-        if (congestion.Count.HasValue && roadVehicles.Count.HasValue && roadVehicles.Count.Value > 0)
+        if (slowBlockedVehicles.HasValue
+            && roadVehicles.Count.HasValue
+            && roadVehicles.Count.Value > 0)
         {
-            double rawRatio = congestion.Count.Value / (double)roadVehicles.Count.Value;
-            if (rawRatio < 0)
-            {
-                rawRatio = 0;
-            }
-            else if (rawRatio > 1)
-            {
-                rawRatio = 1;
-            }
-
-            congestionIndex = Math.Round(rawRatio, 4, MidpointRounding.AwayFromZero);
+            congestionIndex = TransportCongestionMetrics.ComputeCongestionIndex(
+                slowBlockedVehicles.Value,
+                roadVehicles.Count.Value);
         }
 
         var notes = new List<string>
@@ -719,26 +742,131 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         if (congestionIndex.HasValue)
         {
-            notes.Add("congestion_index_0_to_1 is derived from congestion-tagged vehicles divided by road vehicle entities.");
-            AddResultNotes(notes, "congestion_entities", congestion);
+            if (usedBlockerSpeedThreshold)
+            {
+                notes.Add(
+                    "congestion_index_0_to_1 is slow Blocker+Vehicle entities (m_MaxSpeed < "
+                    + TransportCongestionMetrics.SlowBlockerMaxSpeedThreshold
+                    + ") divided by road vehicle entities.");
+            }
+            else
+            {
+                notes.Add(
+                    congestionScanNote
+                    ?? "congestion_index_0_to_1 is derived from Blocker entities divided by road vehicle entities.");
+            }
+
+            if (bottleneckEntities.HasValue)
+            {
+                notes.Add("bottleneck_entities counts active Game.Net.Bottleneck components.");
+            }
         }
         else
         {
-            notes.Add("congestion_index_0_to_1 unavailable: congestion-tag component was not resolved.");
+            notes.Add(
+                congestionScanNote
+                ?? "congestion_index_0_to_1 unavailable: Blocker+Vehicle scan and Blocker fallback both failed.");
         }
 
         return new TransportProxySummary
         {
             Status = ComputeStatus(
-                availableMetrics: CountPresent(roadVehicles.Count) + CountPresent(publicVehicles.Count) + CountPresent(activeLines.Count),
-                expectedMetrics: 3),
+                availableMetrics: CountPresent(roadVehicles.Count)
+                    + CountPresent(publicVehicles.Count)
+                    + CountPresent(activeLines.Count)
+                    + CountPresent(congestionIndex),
+                expectedMetrics: 4),
             RoadVehicleEntities = roadVehicles.Count,
             PublicTransportVehicleEntities = publicVehicles.Count,
             ActiveTransportLines = activeLines.Count,
+            CongestionBlockedVehicleEntities = slowBlockedVehicles,
+            BottleneckEntities = bottleneckEntities,
             CongestionIndex0To1 = congestionIndex,
-            SourceComponent = BuildSourceComponent("ecs.transport_proxy", roadVehicles, publicVehicles, activeLines, congestion),
+            SourceComponent = BuildSourceComponent(
+                "ecs.transport_proxy",
+                roadVehicles,
+                publicVehicles,
+                activeLines),
             Notes = notes.ToArray()
         };
+    }
+
+    private static bool TryCountSlowBlockedVehicles(
+        EntityManager entityManager,
+        out int slowBlockedCount,
+        out string? error)
+    {
+        slowBlockedCount = 0;
+        error = null;
+
+        try
+        {
+            EntityQuery query = entityManager.CreateEntityQuery(
+                new EntityQueryDesc
+                {
+                    All = new[]
+                    {
+                        ComponentType.ReadOnly<Blocker>(),
+                        ComponentType.ReadOnly<Vehicle>()
+                    },
+                    None = new[]
+                    {
+                        ComponentType.ReadOnly<Deleted>(),
+                        ComponentType.ReadOnly<Temp>()
+                    }
+                });
+
+            using NativeArray<Entity> entities = query.ToEntityArray(Allocator.TempJob);
+            for (int i = 0; i < entities.Length; i++)
+            {
+                Blocker blocker = entityManager.GetComponentData<Blocker>(entities[i]);
+                if (blocker.m_MaxSpeed < TransportCongestionMetrics.SlowBlockerMaxSpeedThreshold)
+                {
+                    slowBlockedCount++;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = "Blocker+Vehicle congestion scan failed: " + ex.GetType().Name + ": " + ex.Message;
+            return false;
+        }
+    }
+
+    private static bool TryCountBottleneckEntities(
+        EntityManager entityManager,
+        out int bottleneckCount,
+        out string? error)
+    {
+        bottleneckCount = 0;
+        error = null;
+
+        try
+        {
+            EntityQuery query = entityManager.CreateEntityQuery(
+                new EntityQueryDesc
+                {
+                    All = new[]
+                    {
+                        ComponentType.ReadOnly<Bottleneck>()
+                    },
+                    None = new[]
+                    {
+                        ComponentType.ReadOnly<Deleted>(),
+                        ComponentType.ReadOnly<Temp>()
+                    }
+                });
+
+            bottleneckCount = query.CalculateEntityCount();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = "Bottleneck count failed: " + ex.GetType().Name + ": " + ex.Message;
+            return false;
+        }
     }
 
     public WorkforceSummary CollectWorkforceSummary()

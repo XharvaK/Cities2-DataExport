@@ -325,7 +325,7 @@ public sealed class MetricsCollector
 
         return new CitySnapshotV1
         {
-            SchemaVersion = "2.9.0",
+            SchemaVersion = "2.10.0",
             ExportedAtUtc = exportedAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
             GameBuild = gameBuild,
             ModVersion = modVersion,
@@ -374,7 +374,7 @@ public sealed class MetricsCollector
     {
         var notes = new List<string>
         {
-            "schema 2.9.0 exports observed and derived metrics only."
+            "schema 2.10.0 exports observed and derived metrics only."
         };
 
         foreach (var pair in metricStatus)
