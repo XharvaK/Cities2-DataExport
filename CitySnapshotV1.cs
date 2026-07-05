@@ -39,7 +39,7 @@ public static class MetricTimeBasis
 public sealed class CitySnapshotV1
 {
     [JsonPropertyName("schema_version")]
-    public string SchemaVersion { get; init; } = "2.10.0";
+    public string SchemaVersion { get; init; } = "2.11.0";
 
     [JsonPropertyName("exported_at_utc")]
     public string ExportedAtUtc { get; init; } = string.Empty;
@@ -109,6 +109,12 @@ public sealed class CitySnapshotV1
 
     [JsonPropertyName("utility_pressure_semantics")]
     public UtilityPressureSemanticsSummary UtilityPressureSemantics { get; init; } = new();
+
+    [JsonPropertyName("demand_factors_semantics")]
+    public DemandFactorsSemanticsSummary DemandFactorsSemantics { get; init; } = new();
+
+    [JsonPropertyName("utilities_services_semantics")]
+    public UtilitiesServicesSemanticsSummary UtilitiesServicesSemantics { get; init; } = new();
 
     [JsonPropertyName("meta")]
     public SnapshotMeta Meta { get; init; } = new();
@@ -770,7 +776,7 @@ public static class MetricMetadataDefaults
         {
             ["water"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Instant, "service_units", "Game.Simulation.WaterStatisticsSystem|Game.Simulation.WaterTradeSystem"),
             ["sewage"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Instant, "service_units", "Game.Simulation.WaterStatisticsSystem|Game.Simulation.WaterTradeSystem"),
-            ["electricity"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Monthly, "service_units_per_month", "Game.Net.OutsideConnection|Game.Objects.OutsideConnection"),
+            ["electricity"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Instant, "service_units", "Game.Simulation.ElectricityStatisticsSystem"),
             ["city_service_fill_percent"] = Def(MetricMeasurementKind.Derived, MetricTimeBasis.Instant, "percent", "Game.City.CityStatisticsSystem"),
             ["water_pressure"] = Def(MetricMeasurementKind.Derived, MetricTimeBasis.Instant, "enum", "Game.Simulation.WaterStatisticsSystem|Game.Simulation.WaterTradeSystem"),
             ["sewage_pressure"] = Def(MetricMeasurementKind.Derived, MetricTimeBasis.Instant, "enum", "Game.Simulation.WaterStatisticsSystem|Game.Simulation.WaterTradeSystem")
@@ -812,6 +818,35 @@ public static class MetricMetadataDefaults
             ["capture_context"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.CaptureWindow, "capture_window", "Game.Citizens.Human|Game.Pathfind.PathOwner|Game.Pathfind.PathElement"),
             ["summary"] = Def(MetricMeasurementKind.Derived, MetricTimeBasis.CaptureWindow, "summary", "Game.Citizens.Human|Game.Pathfind.PathOwner|Game.Pathfind.PathElement|Game.Routes.TransportStop"),
             ["hotspots"] = Def(MetricMeasurementKind.Derived, MetricTimeBasis.CaptureWindow, "hotspot_records", "Game.Citizens.Human|Game.Pathfind.PathOwner|Game.Pathfind.PathElement|Game.Routes.TransportStop")
+        };
+    }
+
+    public static SortedDictionary<string, MetricDefinition> DemandFactorsSemantics()
+    {
+        return new SortedDictionary<string, MetricDefinition>(StringComparer.Ordinal)
+        {
+            ["residential_demand"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Instant, "ratio_0_to_1", "Game.Simulation.ResidentialDemandSystem"),
+            ["commercial_demand"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Instant, "ratio_0_to_1", "Game.Simulation.CommercialDemandSystem"),
+            ["industrial_demand"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Instant, "ratio_0_to_1", "Game.Simulation.IndustrialDemandSystem"),
+            ["residential_factors"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Instant, "factor_points", "Game.Simulation.ResidentialDemandSystem"),
+            ["commercial_factors"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Instant, "factor_points", "Game.Simulation.CommercialDemandSystem"),
+            ["industrial_factors"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Instant, "factor_points", "Game.Simulation.IndustrialDemandSystem")
+        };
+    }
+
+    public static SortedDictionary<string, MetricDefinition> UtilitiesServicesSemantics()
+    {
+        return new SortedDictionary<string, MetricDefinition>(StringComparer.Ordinal)
+        {
+            ["electricity_production"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Instant, "service_units", "Game.Simulation.ElectricityStatisticsSystem"),
+            ["electricity_consumption"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Instant, "service_units", "Game.Simulation.ElectricityStatisticsSystem"),
+            ["electricity_capacity"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Instant, "service_units", "Game.Simulation.ElectricityStatisticsSystem"),
+            ["garbage_accumulation"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Instant, "garbage_units_per_day", "Game.Simulation.GarbageAccumulationSystem"),
+            ["garbage_processing"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Instant, "garbage_units_per_day", "Game.Simulation.GarbageProcessingSystem"),
+            ["healthcare_beds_total"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Instant, "beds", "Game.Buildings.Hospital|Game.Prefabs.HospitalData"),
+            ["healthcare_beds_used"] = Def(MetricMeasurementKind.Observed, MetricTimeBasis.Instant, "beds", "Game.Buildings.Hospital|Game.Buildings.Patient"),
+            ["fire_coverage_percent"] = Def(MetricMeasurementKind.Derived, MetricTimeBasis.Instant, "percent", "Game.Simulation.FireCoverageSystem"),
+            ["police_coverage_percent"] = Def(MetricMeasurementKind.Derived, MetricTimeBasis.Instant, "percent", "Game.Simulation.PoliceCoverageSystem")
         };
     }
 

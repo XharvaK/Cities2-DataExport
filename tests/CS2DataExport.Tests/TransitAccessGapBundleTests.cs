@@ -15,7 +15,7 @@ public sealed class TransitAccessGapBundleTests
             modVersion: "1.0.0",
             gameBuild: "test-build");
 
-        Assert.Equal("2.10.0", snapshot.SchemaVersion);
+        Assert.Equal("2.11.0", snapshot.SchemaVersion);
         Assert.Equal(MetricStatus.Ok, snapshot.TransitAccessGapSemantics.Status);
         Assert.Equal(2, snapshot.TransitAccessGapSemantics.Hotspots.Length);
         Assert.Equal("next_export_window", snapshot.TransitAccessGapSemantics.CaptureContext.CaptureMode);
@@ -81,5 +81,7 @@ public sealed class TransitAccessGapBundleTests
         };
 
         public UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
+        public DemandFactorsSemanticsSummary CollectDemandFactorsSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
+        public UtilitiesServicesSemanticsSummary CollectUtilitiesServicesSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
     }
 }

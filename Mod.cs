@@ -63,6 +63,8 @@ namespace CS2DataExport
                 "loaded: enabled=" + _settings.ExportEnabled +
                 ", interval_sec=" + _settings.EffectiveIntervalSeconds +
                 ", retention=" + _settings.EffectiveRetentionCount +
+                ", transit_capture=" + _settings.TransitTripCaptureMode +
+                ", transit_capture_min=" + _settings.EffectiveTransitTripCaptureWindowMinutes +
                 ", output='" + _settings.ResolveOutputRoot() + "'");
         }
 

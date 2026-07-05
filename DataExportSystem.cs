@@ -12,6 +12,8 @@ public sealed record ExportTickResult(
 
 public interface ITransitAccessGapCaptureCoordinator
 {
+    bool IsCaptureActive { get; }
+
     void StartCaptureWindow(DateTimeOffset startedAtUtc, ExportSettings settings);
     void FinalizeCaptureWindow(DateTimeOffset finalizedAtUtc, ExportSettings settings);
     void ClearCompletedCapture();
@@ -96,6 +98,7 @@ public sealed class DataExportSystem
                 _transitAccessGapCaptureCoordinator.ClearCompletedCapture();
                 _transitCaptureWindowActive = false;
                 _transitCaptureStartedAtUtc = null;
+                _transitCaptureWindowConsumed = false;
             }
 
             if (ShouldStartTransitCaptureWindow())
@@ -160,6 +163,8 @@ public sealed class DataExportSystem
 
     private sealed class NoOpTransitAccessGapCaptureCoordinator : ITransitAccessGapCaptureCoordinator
     {
+        public bool IsCaptureActive => false;
+
         public void StartCaptureWindow(DateTimeOffset startedAtUtc, ExportSettings settings)
         {
         }

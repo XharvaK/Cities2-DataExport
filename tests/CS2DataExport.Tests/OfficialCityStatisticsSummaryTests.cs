@@ -15,7 +15,7 @@ public sealed class OfficialCityStatisticsSummaryTests
             modVersion: "1.0.0",
             gameBuild: "test-build");
 
-        Assert.Equal("2.10.0", snapshot.SchemaVersion);
+        Assert.Equal("2.11.0", snapshot.SchemaVersion);
         Assert.Equal(MetricStatus.Ok, snapshot.OfficialCityStatistics.Status);
         Assert.Equal(1400000, snapshot.OfficialCityStatistics.Finance.Money);
         Assert.Equal(128, snapshot.OfficialCityStatistics.TransportTotals.PassengerCountBus);
@@ -28,7 +28,7 @@ public sealed class OfficialCityStatisticsSummaryTests
     {
         var snapshot = new CitySnapshotV1
         {
-            SchemaVersion = "2.10.0",
+            SchemaVersion = "2.11.0",
             OfficialCityStatistics = new OfficialCityStatisticsSummary
             {
                 Status = MetricStatus.Ok,
@@ -112,5 +112,7 @@ public sealed class OfficialCityStatisticsSummaryTests
         };
 
         public UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
+        public DemandFactorsSemanticsSummary CollectDemandFactorsSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
+        public UtilitiesServicesSemanticsSummary CollectUtilitiesServicesSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
     }
 }

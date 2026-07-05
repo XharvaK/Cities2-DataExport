@@ -27,6 +27,7 @@ public sealed partial class RuntimeEcsMetricProbe
 
         WaterStatisticsSystem? waterStatistics = world.GetExistingSystemManaged<WaterStatisticsSystem>();
         WaterTradeSystem? waterTrade = world.GetExistingSystemManaged<WaterTradeSystem>();
+        ElectricityStatisticsSystem? electricityStatistics = world.GetExistingSystemManaged<ElectricityStatisticsSystem>();
         CityStatisticsSystem? cityStatistics = world.GetExistingSystemManaged<CityStatisticsSystem>();
 
         if (waterStatistics == null)
@@ -37,6 +38,11 @@ public sealed partial class RuntimeEcsMetricProbe
         if (waterTrade == null)
         {
             notes.Add("WaterTradeSystem is unavailable.");
+        }
+
+        if (electricityStatistics == null)
+        {
+            notes.Add("ElectricityStatisticsSystem is unavailable.");
         }
 
         int? freshCapacity = waterStatistics?.freshCapacity;
@@ -71,6 +77,28 @@ public sealed partial class RuntimeEcsMetricProbe
             FulfillmentPercent = UtilityPressureSemanticsCalculator.FulfillmentPercent(fulfilledSewage, sewageConsumption)
         };
 
+        int? electricityProduction = electricityStatistics?.production;
+        int? electricityConsumption = electricityStatistics?.consumption;
+        int? electricityFulfilled = electricityStatistics?.fulfilledConsumption;
+        int? electricityCapacity = electricityProduction;
+        if (electricityStatistics?.batteryCapacity is > 0)
+        {
+            electricityCapacity = (electricityProduction ?? 0) + electricityStatistics.batteryCapacity;
+        }
+
+        var electricity = new UtilityServiceFlowSummary
+        {
+            Capacity = electricityCapacity,
+            Consumption = electricityConsumption,
+            FulfilledConsumption = electricityFulfilled,
+            UnfulfilledConsumption = UtilityPressureSemanticsCalculator.Unfulfilled(
+                electricityConsumption,
+                electricityFulfilled),
+            FulfillmentPercent = UtilityPressureSemanticsCalculator.FulfillmentPercent(
+                electricityFulfilled,
+                electricityConsumption)
+        };
+
         double? cityServiceFillPercent = null;
         if (cityStatistics != null)
         {
@@ -92,7 +120,9 @@ public sealed partial class RuntimeEcsMetricProbe
             + CountPresent(freshConsumption)
             + CountPresent(fulfilledFresh)
             + CountPresent(freshImport)
-            + CountPresent(freshExport);
+            + CountPresent(freshExport)
+            + CountPresent(electricityProduction)
+            + CountPresent(electricityConsumption);
 
         if (waterPressure is "shortage" or "import_dependent_shortage" or "pressure" or "capacity_shortage")
         {
@@ -104,11 +134,19 @@ public sealed partial class RuntimeEcsMetricProbe
             notes.Add("sewage capacity or fulfillment is under pressure.");
         }
 
+        if (electricity.Consumption is > 0
+            && electricity.FulfilledConsumption is int fulfilledElectricity
+            && fulfilledElectricity < electricity.Consumption)
+        {
+            notes.Add("electricity demand is not fully met; buildings may brown out.");
+        }
+
         return new UtilityPressureSemanticsSummary
         {
-            Status = ComputeStatus(availableMetrics, expectedMetrics: 3),
+            Status = ComputeStatus(availableMetrics, expectedMetrics: 4),
             Water = water,
             Sewage = sewage,
+            Electricity = electricity,
             CityServiceFillPercent = cityServiceFillPercent,
             WaterPressure = waterPressure,
             SewagePressure = sewagePressure,

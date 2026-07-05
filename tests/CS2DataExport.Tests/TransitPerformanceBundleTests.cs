@@ -64,6 +64,8 @@ public sealed class TransitPerformanceBundleTests
         public TransitLineDetailSemanticsSummary CollectTransitLineDetailSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
         public OfficialCityStatisticsSummary CollectOfficialCityStatisticsSummary() => new() { Status = MetricStatus.Unavailable };
         public UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
+        public DemandFactorsSemanticsSummary CollectDemandFactorsSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
+        public UtilitiesServicesSemanticsSummary CollectUtilitiesServicesSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
 
         public MobilitySummary CollectMobilitySummary() => new()
         {
@@ -107,6 +109,8 @@ public sealed class TransitPerformanceBundleTests
         };
 
         public UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
+        public DemandFactorsSemanticsSummary CollectDemandFactorsSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
+        public UtilitiesServicesSemanticsSummary CollectUtilitiesServicesSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
 
         public MobilitySummary CollectMobilitySummary() => new()
         {

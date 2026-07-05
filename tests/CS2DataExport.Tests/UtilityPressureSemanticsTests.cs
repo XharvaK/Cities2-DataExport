@@ -55,7 +55,7 @@ public sealed class UtilityPressureSemanticsTests
             "test-mod",
             "test-build");
 
-        Assert.Equal("2.10.0", snapshot.SchemaVersion);
+        Assert.Equal("2.11.0", snapshot.SchemaVersion);
         Assert.NotNull(snapshot.UtilityPressureSemantics);
         Assert.Equal(MetricStatus.Ok, snapshot.UtilityPressureSemantics.Status);
         Assert.Equal("pressure", snapshot.UtilityPressureSemantics.WaterPressure);
@@ -92,5 +92,7 @@ public sealed class UtilityPressureSemanticsTests
                 ImportPerMonth = 100
             }
         };
+        public DemandFactorsSemanticsSummary CollectDemandFactorsSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
+        public UtilitiesServicesSemanticsSummary CollectUtilitiesServicesSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
     }
 }

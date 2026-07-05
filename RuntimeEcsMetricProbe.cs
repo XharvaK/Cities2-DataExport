@@ -396,12 +396,28 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             return summary;
         }
 
+        if (_transitAccessGapCaptureCoordinator?.IsCaptureActive == true)
+        {
+            return new TransitAccessGapSemanticsSummary
+            {
+                Status = MetricStatus.Partial,
+                Notes = new[]
+                {
+                    "transit trip capture in progress; hotspots appear after the capture window completes"
+                },
+                CaptureContext = new TransitAccessGapCaptureContext
+                {
+                    CaptureMode = "next_export_window"
+                }
+            };
+        }
+
         return new TransitAccessGapSemanticsSummary
         {
             Status = MetricStatus.Unavailable,
             Notes = new[]
             {
-                "capture mode disabled; no transit trip window recorded"
+                "transit trip capture has not produced a hotspot window yet; play with transit running and wait for the capture window to finish"
             }
         };
     }

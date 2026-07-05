@@ -33,7 +33,7 @@ public sealed class DataExportSystemTransitCaptureTests
         ExportTickResult second = system.Tick(new DateTimeOffset(2026, 4, 5, 18, 10, 0, TimeSpan.Zero));
 
         Assert.True(first.DidExport);
-        Assert.Equal(1, captureCoordinator.StartCaptureCalls);
+        Assert.Equal(2, captureCoordinator.StartCaptureCalls);
         Assert.True(second.DidExport);
         Assert.Equal(1, captureCoordinator.FinalizeCaptureCalls);
         Assert.Equal(1, captureCoordinator.ClearCompletedCaptureCalls);
@@ -68,7 +68,7 @@ public sealed class DataExportSystemTransitCaptureTests
         _ = system.Tick(new DateTimeOffset(2026, 4, 5, 18, 20, 0, TimeSpan.Zero));
         _ = system.Tick(new DateTimeOffset(2026, 4, 5, 18, 30, 0, TimeSpan.Zero));
 
-        Assert.Equal(1, captureCoordinator.StartCaptureCalls);
+        Assert.Equal(2, captureCoordinator.StartCaptureCalls);
         Assert.Equal(1, captureCoordinator.FinalizeCaptureCalls);
         Assert.Equal(new DateTimeOffset(2026, 4, 5, 18, 30, 0, TimeSpan.Zero), captureCoordinator.LastFinalizeAtUtc);
     }
@@ -80,16 +80,23 @@ public sealed class DataExportSystemTransitCaptureTests
 
     private sealed class FakeTransitAccessGapCaptureCoordinator : ITransitAccessGapCaptureCoordinator
     {
+        public bool IsCaptureActive { get; private set; }
+
         public int StartCaptureCalls { get; private set; }
         public int FinalizeCaptureCalls { get; private set; }
         public int ClearCompletedCaptureCalls { get; private set; }
         public DateTimeOffset? LastFinalizeAtUtc { get; private set; }
 
-        public void StartCaptureWindow(DateTimeOffset startedAtUtc, ExportSettings settings) => StartCaptureCalls++;
+        public void StartCaptureWindow(DateTimeOffset startedAtUtc, ExportSettings settings)
+        {
+            StartCaptureCalls++;
+            IsCaptureActive = true;
+        }
         public void FinalizeCaptureWindow(DateTimeOffset finalizedAtUtc, ExportSettings settings)
         {
             FinalizeCaptureCalls++;
             LastFinalizeAtUtc = finalizedAtUtc;
+            IsCaptureActive = false;
         }
         public void ClearCompletedCapture() => ClearCompletedCaptureCalls++;
     }
@@ -115,5 +122,7 @@ public sealed class DataExportSystemTransitCaptureTests
         public TransitAccessGapSemanticsSummary CollectTransitAccessGapSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
         public OfficialCityStatisticsSummary CollectOfficialCityStatisticsSummary() => new() { Status = MetricStatus.Unavailable };
         public UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
+        public DemandFactorsSemanticsSummary CollectDemandFactorsSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
+        public UtilitiesServicesSemanticsSummary CollectUtilitiesServicesSemanticsSummary() => new() { Status = MetricStatus.Unavailable };
     }
 }

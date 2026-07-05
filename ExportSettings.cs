@@ -21,8 +21,8 @@ public sealed class ExportSettings
     public int IntervalSeconds { get; set; } = DefaultIntervalSeconds;
     public int RetentionCount { get; set; } = DefaultRetentionCount;
     public string OutputRootOverride { get; set; } = string.Empty;
-    public TransitTripCaptureMode TransitTripCaptureMode { get; set; } = TransitTripCaptureMode.Off;
-    public int TransitTripCaptureWindowMinutes { get; set; } = DefaultIntervalMinutes;
+    public TransitTripCaptureMode TransitTripCaptureMode { get; set; } = TransitTripCaptureMode.NextExportWindow;
+    public int TransitTripCaptureWindowMinutes { get; set; } = 3;
     public bool TransitTripCaptureIncludeOutsideTrips { get; set; }
     public int TransitTripCaptureClusterRadiusMeters { get; set; } = 192;
     public int TransitTripCaptureMaxSampleRoutesPerHotspot { get; set; } = 5;
@@ -81,7 +81,30 @@ public sealed class ExportSettings
             settings.IntervalSeconds = parsedSeconds;
         }
 
+        string? transitCapture = Environment.GetEnvironmentVariable("CS2DATAEXPORT_TRANSIT_CAPTURE");
+        if (!string.IsNullOrWhiteSpace(transitCapture))
+        {
+            settings.TransitTripCaptureMode = ParseTransitCaptureMode(transitCapture);
+        }
+
+        string? captureWindowMinutes = Environment.GetEnvironmentVariable("CS2DATAEXPORT_TRANSIT_CAPTURE_MINUTES");
+        if (!string.IsNullOrWhiteSpace(captureWindowMinutes)
+            && int.TryParse(captureWindowMinutes, out int parsedMinutes))
+        {
+            settings.TransitTripCaptureWindowMinutes = parsedMinutes;
+        }
+
         return settings;
+    }
+
+    private static TransitTripCaptureMode ParseTransitCaptureMode(string value)
+    {
+        string normalized = value.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "0" or "off" or "false" or "no" => TransitTripCaptureMode.Off,
+            _ => TransitTripCaptureMode.NextExportWindow,
+        };
     }
 
     private static int ClampInt(int value, int min, int max)

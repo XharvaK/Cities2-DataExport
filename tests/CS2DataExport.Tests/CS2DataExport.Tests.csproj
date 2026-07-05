@@ -24,6 +24,9 @@
     <Compile Include="..\..\TransitAccessGapRouteSampleProjection.cs" Link="TransitAccessGapRouteSampleProjection.cs" />
     <Compile Include="..\..\TransitLineDetailCalculator.cs" Link="TransitLineDetailCalculator.cs" />
     <Compile Include="..\..\TransitLayoutTraversal.cs" Link="TransitLayoutTraversal.cs" />
+    <Compile Include="..\..\TransportCongestionMetrics.cs" Link="TransportCongestionMetrics.cs" />
     <Compile Include="..\..\UtilityPressureSemantics.cs" Link="UtilityPressureSemantics.cs" />
+    <Compile Include="..\..\DemandFactorsSemantics.cs" Link="DemandFactorsSemantics.cs" />
+    <Compile Include="..\..\UtilitiesServicesSemantics.cs" Link="UtilitiesServicesSemantics.cs" />
   </ItemGroup>
 </Project>

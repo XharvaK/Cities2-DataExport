@@ -25,6 +25,8 @@ public interface IMetricProbe
     TransitAccessGapSemanticsSummary CollectTransitAccessGapSemanticsSummary();
     OfficialCityStatisticsSummary CollectOfficialCityStatisticsSummary();
     UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummary();
+    DemandFactorsSemanticsSummary CollectDemandFactorsSemanticsSummary();
+    UtilitiesServicesSemanticsSummary CollectUtilitiesServicesSemanticsSummary();
 }
 
 public sealed class DefaultMetricProbe : IMetricProbe
@@ -259,6 +261,30 @@ public sealed class DefaultMetricProbe : IMetricProbe
             }
         };
     }
+
+    public DemandFactorsSemanticsSummary CollectDemandFactorsSemanticsSummary()
+    {
+        return new DemandFactorsSemanticsSummary
+        {
+            Status = MetricStatus.Unavailable,
+            Notes = new[]
+            {
+                "Demand factors semantics provider is not wired in this build."
+            }
+        };
+    }
+
+    public UtilitiesServicesSemanticsSummary CollectUtilitiesServicesSemanticsSummary()
+    {
+        return new UtilitiesServicesSemanticsSummary
+        {
+            Status = MetricStatus.Unavailable,
+            Notes = new[]
+            {
+                "Utilities/services semantics provider is not wired in this build."
+            }
+        };
+    }
 }
 
 public sealed class MetricsCollector
@@ -296,6 +322,12 @@ public sealed class MetricsCollector
         var utilityPressureSemantics = SafeCollect(
             _probe.CollectUtilityPressureSemanticsSummary,
             CreateUnavailableUtilityPressureSemantics);
+        var demandFactorsSemantics = SafeCollect(
+            _probe.CollectDemandFactorsSemanticsSummary,
+            CreateUnavailableDemandFactorsSemantics);
+        var utilitiesServicesSemantics = SafeCollect(
+            _probe.CollectUtilitiesServicesSemanticsSummary,
+            CreateUnavailableUtilitiesServicesSemantics);
 
         var metricStatus = new SortedDictionary<string, string>(StringComparer.Ordinal)
         {
@@ -318,14 +350,16 @@ public sealed class MetricsCollector
             ["transit_line_detail_semantics"] = transitLineDetailSemantics.Status,
             ["transit_access_gap_semantics"] = transitAccessGapSemantics.Status,
             ["official_city_statistics"] = officialCityStatistics.Status,
-            ["utility_pressure_semantics"] = utilityPressureSemantics.Status
+            ["utility_pressure_semantics"] = utilityPressureSemantics.Status,
+            ["demand_factors_semantics"] = demandFactorsSemantics.Status,
+            ["utilities_services_semantics"] = utilitiesServicesSemantics.Status
         };
 
         var metaNotes = BuildMetaNotes(metricStatus);
 
         return new CitySnapshotV1
         {
-            SchemaVersion = "2.10.0",
+            SchemaVersion = "2.11.0",
             ExportedAtUtc = exportedAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
             GameBuild = gameBuild,
             ModVersion = modVersion,
@@ -349,6 +383,8 @@ public sealed class MetricsCollector
             TransitAccessGapSemantics = transitAccessGapSemantics,
             OfficialCityStatistics = officialCityStatistics,
             UtilityPressureSemantics = utilityPressureSemantics,
+            DemandFactorsSemantics = demandFactorsSemantics,
+            UtilitiesServicesSemantics = utilitiesServicesSemantics,
             Meta = new SnapshotMeta
             {
                 Source = "ecs_observed",
@@ -374,7 +410,7 @@ public sealed class MetricsCollector
     {
         var notes = new List<string>
         {
-            "schema 2.10.0 exports observed and derived metrics only."
+            "schema 2.11.0 exports observed and derived metrics only."
         };
 
         foreach (var pair in metricStatus)
@@ -558,6 +594,24 @@ public sealed class MetricsCollector
         {
             Status = MetricStatus.Partial,
             Notes = new[] { $"utility pressure semantics probe failed: {exception.Message}" }
+        };
+    }
+
+    private static DemandFactorsSemanticsSummary CreateUnavailableDemandFactorsSemantics(Exception exception)
+    {
+        return new DemandFactorsSemanticsSummary
+        {
+            Status = MetricStatus.Partial,
+            Notes = new[] { $"demand factors semantics probe failed: {exception.Message}" }
+        };
+    }
+
+    private static UtilitiesServicesSemanticsSummary CreateUnavailableUtilitiesServicesSemantics(Exception exception)
+    {
+        return new UtilitiesServicesSemanticsSummary
+        {
+            Status = MetricStatus.Partial,
+            Notes = new[] { $"utilities/services semantics probe failed: {exception.Message}" }
         };
     }
 

@@ -76,6 +76,10 @@
 		<Compile Remove="RuntimeEcsMetricProbe.cs" />
 		<Compile Include="RuntimeEcsMetricProbe.cs" />
 		<Compile Include="RuntimeEcsMetricProbe.Utilities.cs" />
+		<Compile Include="RuntimeEcsMetricProbe.Demand.cs" />
+		<Compile Include="RuntimeEcsMetricProbe.UtilitiesServices.cs" />
+		<Compile Include="DemandFactorsSemantics.cs" />
+		<Compile Include="UtilitiesServicesSemantics.cs" />
 		<Compile Include="UtilityPressureSemantics.cs" />
 	</ItemGroup>
 

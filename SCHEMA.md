@@ -1,6 +1,11 @@
 # CitySnapshotV1
 
-Schema version: `2.10.0`
+Schema version: `2.11.0`
+
+`2.11.0` is an additive refresh over `2.10.0`:
+- adds `demand_factors_semantics` for RCI demand bars (0..1) and per-zone factor maps from `ResidentialDemandSystem`, `CommercialDemandSystem`, and `IndustrialDemandSystem`
+- adds `utilities_services_semantics` for electricity production/consumption/fulfillment and garbage accumulation
+- populates `utility_pressure_semantics.electricity` from `ElectricityStatisticsSystem` (was previously empty)
 
 `2.10.0` is an additive refresh over `2.9.0`:
 - `transport_proxies.congestion_index_0_to_1` now derives from slow `Game.Vehicles.Blocker` + `Game.Vehicles.Vehicle` entities (`m_MaxSpeed < 6`) divided by `road_vehicle_entities` (replaces unresolved `TrafficJam` / `Congestion` tags)
@@ -54,6 +59,8 @@ Schema version: `2.10.0`
 - `population` (`object`)
 - `official_city_statistics` (`object`)
 - `utility_pressure_semantics` (`object`)
+- `demand_factors_semantics` (`object`)
+- `utilities_services_semantics` (`object`)
 - `education` (`object`)
 - `transport_proxies` (`object`)
 - `workforce` (`object`)
