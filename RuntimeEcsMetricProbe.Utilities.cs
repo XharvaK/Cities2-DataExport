@@ -10,19 +10,28 @@ public sealed partial class RuntimeEcsMetricProbe
 {
     public UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummary()
     {
+        if (!TryGetEntityManager(out _, out string entityManagerReason))
+        {
+            return new UtilityPressureSemanticsSummary
+            {
+                Status = MetricStatus.Unavailable,
+                Notes = new[] { entityManagerReason }
+            };
+        }
+
         World? world = _getWorld();
         if (world == null || !world.IsCreated)
         {
             return new UtilityPressureSemanticsSummary
             {
                 Status = MetricStatus.Unavailable,
-                Notes = new[] { "runtime World is unavailable; utility pressure cannot be resolved." }
+                Notes = new[] { "runtime World is unavailable; utility systems cannot be resolved." }
             };
         }
 
         var notes = new List<string>
         {
-            "utility pressure combines WaterStatisticsSystem capacity/consumption with WaterTradeSystem outside trade snapshots."
+            "utility pressure semantics combine water/sewage/electricity flow snapshots and city-service staffing."
         };
 
         WaterStatisticsSystem? waterStatistics = world.GetExistingSystemManaged<WaterStatisticsSystem>();
@@ -30,127 +39,164 @@ public sealed partial class RuntimeEcsMetricProbe
         ElectricityStatisticsSystem? electricityStatistics = world.GetExistingSystemManaged<ElectricityStatisticsSystem>();
         CityStatisticsSystem? cityStatistics = world.GetExistingSystemManaged<CityStatisticsSystem>();
 
-        if (waterStatistics == null)
-        {
-            notes.Add("WaterStatisticsSystem is unavailable.");
-        }
+        UtilityServiceFlowSummary water = ReadWaterFlow(waterStatistics, waterTrade, notes);
+        UtilityServiceFlowSummary sewage = ReadSewageFlow(waterStatistics, waterTrade, notes);
+        UtilityServiceFlowSummary electricity = ReadElectricityFlow(electricityStatistics, notes);
 
-        if (waterTrade == null)
-        {
-            notes.Add("WaterTradeSystem is unavailable.");
-        }
-
-        if (electricityStatistics == null)
-        {
-            notes.Add("ElectricityStatisticsSystem is unavailable.");
-        }
-
-        int? freshCapacity = waterStatistics?.freshCapacity;
-        int? freshConsumption = waterStatistics?.freshConsumption;
-        int? fulfilledFresh = waterStatistics?.fulfilledFreshConsumption;
-        int? sewageCapacity = waterStatistics?.sewageCapacity;
-        int? sewageConsumption = waterStatistics?.sewageConsumption;
-        int? fulfilledSewage = waterStatistics?.fulfilledSewageConsumption;
-
-        int? freshImport = waterTrade?.freshImport;
-        int? freshExport = waterTrade?.freshExport;
-        int? sewageExport = waterTrade?.sewageExport;
-
-        var water = new UtilityServiceFlowSummary
-        {
-            Capacity = freshCapacity,
-            Consumption = freshConsumption,
-            FulfilledConsumption = fulfilledFresh,
-            ImportPerMonth = freshImport,
-            ExportPerMonth = freshExport,
-            UnfulfilledConsumption = UtilityPressureSemanticsCalculator.Unfulfilled(freshConsumption, fulfilledFresh),
-            FulfillmentPercent = UtilityPressureSemanticsCalculator.FulfillmentPercent(fulfilledFresh, freshConsumption)
-        };
-
-        var sewage = new UtilityServiceFlowSummary
-        {
-            Capacity = sewageCapacity,
-            Consumption = sewageConsumption,
-            FulfilledConsumption = fulfilledSewage,
-            ExportPerMonth = sewageExport,
-            UnfulfilledConsumption = UtilityPressureSemanticsCalculator.Unfulfilled(sewageConsumption, fulfilledSewage),
-            FulfillmentPercent = UtilityPressureSemanticsCalculator.FulfillmentPercent(fulfilledSewage, sewageConsumption)
-        };
-
-        int? electricityProduction = electricityStatistics?.production;
-        int? electricityConsumption = electricityStatistics?.consumption;
-        int? electricityFulfilled = electricityStatistics?.fulfilledConsumption;
-        int? electricityCapacity = electricityProduction;
-        if (electricityStatistics?.batteryCapacity is > 0)
-        {
-            electricityCapacity = (electricityProduction ?? 0) + electricityStatistics.batteryCapacity;
-        }
-
-        var electricity = new UtilityServiceFlowSummary
-        {
-            Capacity = electricityCapacity,
-            Consumption = electricityConsumption,
-            FulfilledConsumption = electricityFulfilled,
-            UnfulfilledConsumption = UtilityPressureSemanticsCalculator.Unfulfilled(
-                electricityConsumption,
-                electricityFulfilled),
-            FulfillmentPercent = UtilityPressureSemanticsCalculator.FulfillmentPercent(
-                electricityFulfilled,
-                electricityConsumption)
-        };
-
-        double? cityServiceFillPercent = null;
+        double? cityServiceFill = null;
         if (cityStatistics != null)
         {
             int? workers = GetOfficialStatistic(cityStatistics, StatisticType.CityServiceWorkers);
             int? maxWorkers = GetOfficialStatistic(cityStatistics, StatisticType.CityServiceMaxWorkers);
-            if (workers.HasValue && maxWorkers is > 0)
+            if (workers is >= 0 && maxWorkers is > 0)
             {
-                cityServiceFillPercent = workers.Value * 100.0 / maxWorkers.Value;
+                cityServiceFill = workers.Value * 100.0 / maxWorkers.Value;
             }
         }
 
         string waterPressure = UtilityPressureSemanticsCalculator.ClassifyWaterPressure(
             water,
-            freshImport,
-            cityServiceFillPercent);
+            water.ImportPerMonth,
+            cityServiceFill);
         string sewagePressure = UtilityPressureSemanticsCalculator.ClassifySewagePressure(sewage);
 
-        int availableMetrics = CountPresent(freshCapacity)
-            + CountPresent(freshConsumption)
-            + CountPresent(fulfilledFresh)
-            + CountPresent(freshImport)
-            + CountPresent(freshExport)
-            + CountPresent(electricityProduction)
-            + CountPresent(electricityConsumption);
-
-        if (waterPressure is "shortage" or "import_dependent_shortage" or "pressure" or "capacity_shortage")
-        {
-            notes.Add("fresh water demand is not fully met; citizens may report contaminated or unreliable water.");
-        }
-
-        if (sewagePressure is "shortage" or "capacity_shortage")
-        {
-            notes.Add("sewage capacity or fulfillment is under pressure.");
-        }
-
-        if (electricity.Consumption is > 0
-            && electricity.FulfilledConsumption is int fulfilledElectricity
-            && fulfilledElectricity < electricity.Consumption)
-        {
-            notes.Add("electricity demand is not fully met; buildings may brown out.");
-        }
+        int available = CountPresent(water.Capacity, water.Consumption)
+                        + CountPresent(sewage.Capacity, sewage.Consumption)
+                        + CountPresent(electricity.Capacity, electricity.Consumption)
+                        + (cityServiceFill.HasValue ? 1 : 0);
 
         return new UtilityPressureSemanticsSummary
         {
-            Status = ComputeStatus(availableMetrics, expectedMetrics: 4),
+            Status = available >= 2 ? MetricStatus.Ok : available == 1 ? MetricStatus.Partial : MetricStatus.Unavailable,
             Water = water,
             Sewage = sewage,
             Electricity = electricity,
-            CityServiceFillPercent = cityServiceFillPercent,
+            CityServiceFillPercent = cityServiceFill,
             WaterPressure = waterPressure,
             SewagePressure = sewagePressure,
             Notes = notes.ToArray()
         };
+    }
+
+    private static UtilityServiceFlowSummary ReadWaterFlow(
+        WaterStatisticsSystem? statistics,
+        WaterTradeSystem? trade,
+        List<string> notes)
+    {
+        if (statistics == null)
+        {
+            notes.Add("WaterStatisticsSystem is unavailable.");
+            return new UtilityServiceFlowSummary();
+        }
+
+        int? capacity = ReadIntMember(statistics, "freshCapacity", "m_FreshCapacity", "waterCapacity", "m_WaterCapacity");
+        int? consumption = ReadIntMember(statistics, "freshConsumption", "m_FreshConsumption", "waterConsumption", "m_WaterConsumption");
+        int? fulfilled = ReadIntMember(statistics, "freshFulfilledConsumption", "m_FreshFulfilledConsumption", "fulfilledConsumption", "m_FulfilledConsumption");
+        int? import = trade == null ? null : ReadIntMember(trade, "freshImport", "m_FreshImport", "waterImport", "m_WaterImport");
+        int? export = trade == null ? null : ReadIntMember(trade, "freshExport", "m_FreshExport", "waterExport", "m_WaterExport");
+
+        return BuildUtilityFlow(capacity, consumption, fulfilled, import, export);
+    }
+
+    private static UtilityServiceFlowSummary ReadSewageFlow(
+        WaterStatisticsSystem? statistics,
+        WaterTradeSystem? trade,
+        List<string> notes)
+    {
+        if (statistics == null)
+        {
+            notes.Add("WaterStatisticsSystem is unavailable for sewage metrics.");
+            return new UtilityServiceFlowSummary();
+        }
+
+        int? capacity = ReadIntMember(statistics, "sewageCapacity", "m_SewageCapacity");
+        int? consumption = ReadIntMember(statistics, "sewageConsumption", "m_SewageConsumption");
+        int? fulfilled = ReadIntMember(statistics, "sewageFulfilledConsumption", "m_SewageFulfilledConsumption");
+        int? import = trade == null ? null : ReadIntMember(trade, "sewageImport", "m_SewageImport");
+        int? export = trade == null ? null : ReadIntMember(trade, "sewageExport", "m_SewageExport");
+
+        return BuildUtilityFlow(capacity, consumption, fulfilled, import, export);
+    }
+
+    private static UtilityServiceFlowSummary ReadElectricityFlow(
+        ElectricityStatisticsSystem? statistics,
+        List<string> notes)
+    {
+        if (statistics == null)
+        {
+            notes.Add("ElectricityStatisticsSystem is unavailable.");
+            return new UtilityServiceFlowSummary();
+        }
+
+        int? capacity = ReadIntMember(statistics, "production", "m_Production", "capacity", "m_Capacity");
+        int? consumption = ReadIntMember(statistics, "consumption", "m_Consumption");
+        int? fulfilled = ReadIntMember(statistics, "fulfilledConsumption", "m_FulfilledConsumption");
+        int? import = ReadIntMember(statistics, "import", "m_Import", "importPerMonth", "m_ImportPerMonth");
+        int? export = ReadIntMember(statistics, "export", "m_Export", "exportPerMonth", "m_ExportPerMonth");
+
+        return BuildUtilityFlow(capacity, consumption, fulfilled, import, export);
+    }
+
+    private static UtilityServiceFlowSummary BuildUtilityFlow(
+        int? capacity,
+        int? consumption,
+        int? fulfilled,
+        int? import,
+        int? export)
+    {
+        int? effectiveFulfilled = fulfilled ?? InferFulfilledConsumption(capacity, consumption);
+
+        return new UtilityServiceFlowSummary
+        {
+            Capacity = capacity,
+            Consumption = consumption,
+            FulfilledConsumption = effectiveFulfilled,
+            ImportPerMonth = import,
+            ExportPerMonth = export,
+            UnfulfilledConsumption = UtilityPressureSemanticsCalculator.Unfulfilled(consumption, effectiveFulfilled),
+            FulfillmentPercent = UtilityPressureSemanticsCalculator.FulfillmentPercent(effectiveFulfilled, consumption)
+        };
+    }
+
+    private static int? InferFulfilledConsumption(int? capacity, int? consumption)
+    {
+        if (!consumption.HasValue || consumption.Value <= 0)
+        {
+            return null;
+        }
+
+        if (!capacity.HasValue || capacity.Value <= 0)
+        {
+            return null;
+        }
+
+        return Math.Min(capacity.Value, consumption.Value);
+    }
+
+    private static int? ReadIntMember(object source, params string[] memberNames)
+    {
+        foreach (string memberName in memberNames)
+        {
+            if (TryExtractNamedDouble(source, memberName, out double value))
+            {
+                return (int)value;
+            }
+        }
+
+        return null;
+    }
+
+    private static int CountPresent(params int?[] values)
+    {
+        int count = 0;
+        foreach (int? value in values)
+        {
+            if (value.HasValue)
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 }

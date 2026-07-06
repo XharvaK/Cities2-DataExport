@@ -16,7 +16,7 @@ public sealed class Schema211BundleTests
             modVersion: "1.0.0",
             gameBuild: "test-build");
 
-        Assert.Equal("2.11.0", snapshot.SchemaVersion);
+        Assert.Equal("2.12.0", snapshot.SchemaVersion);
         Assert.Equal(MetricStatus.Ok, snapshot.DemandFactorsSemantics.Status);
         Assert.Equal(0.62, snapshot.DemandFactorsSemantics.CommercialDemand);
         Assert.Contains("taxes", snapshot.DemandFactorsSemantics.CommercialFactors!.Keys);

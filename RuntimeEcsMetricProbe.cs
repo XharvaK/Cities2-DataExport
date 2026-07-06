@@ -480,8 +480,9 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         }
 
         OfficialCitySingletonValues singletonValues = ReadOfficialCitySingletonValues(entityManager, notes);
-        DateTime? gameDate = timeSystem?.GetCurrentDateTime();
+        DateTime? gameDate = TryGetCurrentGameDate(timeSystem, notes);
         int? officialPopulation = GetOfficialStatistic(statistics, StatisticType.Population);
+        int? sampleCount = TryGetSampleCount(statistics, notes);
 
         int availableSystemCount = 1
             + (citySystem == null ? 0 : 1)
@@ -504,7 +505,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
                 GameMonth = gameDate?.Month,
                 GameDay = gameDate?.Day,
                 DaysPerYear = timeSystem?.daysPerYear,
-                SampleCount = statistics.sampleCount,
+                SampleCount = sampleCount,
                 KUpdatesPerDay = CityStatisticsSystem.kUpdatesPerDay,
                 KTicksPerDay = TimeSystem.kTicksPerDay
             },
@@ -817,7 +818,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            EntityQuery query = entityManager.CreateEntityQuery(
+            using EntityQuery query = entityManager.CreateEntityQuery(
                 new EntityQueryDesc
                 {
                     All = new[]
@@ -861,7 +862,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            EntityQuery query = entityManager.CreateEntityQuery(
+            using EntityQuery query = entityManager.CreateEntityQuery(
                 new EntityQueryDesc
                 {
                     All = new[]
@@ -2751,7 +2752,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            var lineQuery = entityManager.CreateEntityQuery(
+            using EntityQuery lineQuery = entityManager.CreateEntityQuery(
                 new EntityQueryDesc
                 {
                     All = new[]
@@ -2856,7 +2857,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         {
             try
             {
-                var vehicleQuery = entityManager.CreateEntityQuery(
+                using EntityQuery vehicleQuery = entityManager.CreateEntityQuery(
                     new EntityQueryDesc
                     {
                         All = new[]
@@ -4703,7 +4704,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            var query = entityManager.CreateEntityQuery(
+            using EntityQuery query = entityManager.CreateEntityQuery(
                 new EntityQueryDesc
                 {
                     All = new[]
@@ -5268,7 +5269,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            var query = entityManager.CreateEntityQuery(
+            using EntityQuery query = entityManager.CreateEntityQuery(
                 new EntityQueryDesc
                 {
                     All = new[]
@@ -5509,7 +5510,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            var query = entityManager.CreateEntityQuery(
+            using EntityQuery query = entityManager.CreateEntityQuery(
                 new EntityQueryDesc
                 {
                     All = new[]
@@ -5823,7 +5824,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            var query = entityManager.CreateEntityQuery(
+            using EntityQuery query = entityManager.CreateEntityQuery(
                 new EntityQueryDesc
                 {
                     All = new[]
@@ -5905,7 +5906,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            var query = entityManager.CreateEntityQuery(
+            using EntityQuery query = entityManager.CreateEntityQuery(
                 new EntityQueryDesc
                 {
                     All = new[]
@@ -5996,7 +5997,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            var query = entityManager.CreateEntityQuery(
+            using EntityQuery query = entityManager.CreateEntityQuery(
                 new EntityQueryDesc
                 {
                     All = new[]
@@ -6617,7 +6618,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         EntityManager entityManager,
         List<string> notes)
     {
-        EntityQuery query = entityManager.CreateEntityQuery(
+        using EntityQuery query = entityManager.CreateEntityQuery(
             ComponentType.ReadOnly<City>(),
             ComponentType.ReadOnly<Population>(),
             ComponentType.ReadOnly<Tourism>(),
@@ -6648,9 +6649,36 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             notes.Add("city singleton values unavailable: " + ex.Message);
             return new OfficialCitySingletonValues(null, null, null, null, null);
         }
-        finally
+    }
+
+    private static DateTime? TryGetCurrentGameDate(TimeSystem? timeSystem, List<string> notes)
+    {
+        if (timeSystem == null)
         {
-            query.Dispose();
+            return null;
+        }
+
+        try
+        {
+            return timeSystem.GetCurrentDateTime();
+        }
+        catch (Exception ex)
+        {
+            notes.Add("game date unavailable: " + ex.Message);
+            return null;
+        }
+    }
+
+    private static int? TryGetSampleCount(CityStatisticsSystem statistics, List<string> notes)
+    {
+        try
+        {
+            return statistics.sampleCount;
+        }
+        catch (Exception ex)
+        {
+            notes.Add("statistics sample_count unavailable: " + ex.Message);
+            return null;
         }
     }
 
@@ -6869,7 +6897,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
                 return false;
             }
 
-            EntityQuery query = entityManager.CreateEntityQuery(required);
+            using EntityQuery query = entityManager.CreateEntityQuery(required);
             count = query.CalculateEntityCount();
             return true;
         }

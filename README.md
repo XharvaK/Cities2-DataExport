@@ -186,7 +186,7 @@ More detailed Windows install notes are in [INSTALL.md](INSTALL.md).
 
 Cities: Skylines II patches can change internal ECS components, systems, or modding toolchain behavior. After a game update, rebuild the mod and check that `latest.json` is still being written before relying on the export.
 
-The current public schema target is `2.10.0`. Additive fields may appear over time. Breaking schema changes should be reflected by a schema version update.
+The current public schema target is `2.12.0`. Additive fields may appear over time. Breaking schema changes should be reflected by a schema version update.
 
 ## Status
 

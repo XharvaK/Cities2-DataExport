@@ -1,5 +1,5 @@
 {
-  "schema_version": "2.11.0",
+  "schema_version": "2.12.0",
   "exported_at_utc": "2026-02-22T22:15:00.0000000Z",
   "game_build": "1.4.0f1",
   "mod_version": "2.0.0",
@@ -957,10 +957,37 @@
       }
     }
   },
+  "demand_factors_semantics": {
+    "status": "ok",
+    "residential_demand": 0.41,
+    "commercial_demand": 0.62,
+    "industrial_demand": 0.28,
+    "commercial_factors": {
+      "taxes": -8,
+      "happiness": 4
+    },
+    "source_component": "ecs.demand_factors:Game.Simulation.CommercialDemandSystem"
+  },
+  "utilities_services_semantics": {
+    "status": "ok",
+    "electricity_production": 1200,
+    "electricity_consumption": 1500,
+    "electricity_capacity": 1200,
+    "electricity_fulfilled_consumption": 1100,
+    "electricity_fulfillment_percent": 73.3,
+    "electricity_pressure": "shortage",
+    "garbage_accumulation": 42000,
+    "garbage_processing": 38000,
+    "healthcare_beds_total": 240,
+    "healthcare_beds_used": 198,
+    "fire_coverage_percent": 88.5,
+    "police_coverage_percent": 91.2,
+    "source_component": "ecs.utilities_services:Game.Simulation.ElectricityStatisticsSystem|Game.Simulation.GarbageProcessingSystem"
+  },
   "meta": {
     "source": "ecs_observed",
     "notes": [
-      "schema 2.7.0 exports observed and derived metrics only.",
+      "schema 2.12.0 exports observed and derived metrics only.",
       "group 'education' exported with status 'partial'.",
       "group 'transport_proxies' exported with status 'partial'.",
       "group 'economy_signals' exported with status 'partial'.",
@@ -978,7 +1005,9 @@
       "economy_signals": "partial",
       "external_connections": "partial",
       "labor_market_detail": "ok",
-      "transit_line_detail_semantics": "ok"
+      "transit_line_detail_semantics": "ok",
+      "demand_factors_semantics": "ok",
+      "utilities_services_semantics": "ok"
     }
   }
 }

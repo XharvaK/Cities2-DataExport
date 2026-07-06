@@ -36,7 +36,7 @@ public sealed class TransitAccessGapRuntimeObserver
             return;
         }
 
-        if (!HasProvenPassengerTripCarrier())
+        if (!HasProvenPassengerTripCarrier(entityManager))
         {
             _coordinator.MarkPassengerTripCarrierUnavailable(NoProvenPassengerCarrierNote);
             return;
@@ -45,7 +45,6 @@ public sealed class TransitAccessGapRuntimeObserver
         _observeTick++;
         ReplaceStops(entityManager);
 
-        // Ready path once we can prove a passenger-only trip carrier at runtime.
         EntityQueryDesc queryDesc = new()
         {
             All = new[]
@@ -58,7 +57,7 @@ public sealed class TransitAccessGapRuntimeObserver
             }
         };
 
-        EntityQuery query = entityManager.CreateEntityQuery(queryDesc);
+        using EntityQuery query = entityManager.CreateEntityQuery(queryDesc);
         using NativeArray<Entity> humans = query.ToEntityArray(Allocator.Temp);
         for (int index = 0; index < humans.Length; index++)
         {
@@ -161,7 +160,7 @@ public sealed class TransitAccessGapRuntimeObserver
             }
         };
 
-        EntityQuery query = entityManager.CreateEntityQuery(queryDesc);
+        using EntityQuery query = entityManager.CreateEntityQuery(queryDesc);
         using NativeArray<Entity> stops = query.ToEntityArray(Allocator.Temp);
         var observedStops = new List<TransitAccessGapStop>(stops.Length);
 
@@ -308,12 +307,22 @@ public sealed class TransitAccessGapRuntimeObserver
         }
     }
 
-    private static bool HasProvenPassengerTripCarrier()
+    private static bool HasProvenPassengerTripCarrier(EntityManager entityManager)
     {
-        // Safe fallback: keep this false until we validate a runtime carrier that distinguishes
-        // passenger trips from freight/service traffic. Candidate families to investigate next
-        // include Citizen, HumanCurrentLane, TravelPurpose, and ownership-linked human trip paths.
-        return false;
+        try
+        {
+            EntityQueryDesc queryDesc = new()
+            {
+                All = new[] { ComponentType.ReadOnly<PathOwner>() },
+                None = new[] { ComponentType.ReadOnly<Deleted>() }
+            };
+            using EntityQuery query = entityManager.CreateEntityQuery(queryDesc);
+            return query.CalculateEntityCount() > 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private readonly record struct ActiveTrip(Entity Target, Entity Destination, ulong LastObservedTick);

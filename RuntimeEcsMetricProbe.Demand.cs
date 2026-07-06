@@ -19,14 +19,13 @@ public sealed partial class RuntimeEcsMetricProbe
             return new DemandFactorsSemanticsSummary
             {
                 Status = MetricStatus.Unavailable,
-                Notes = new[] { "runtime World is unavailable; demand factors cannot be resolved." }
+                Notes = new[] { "runtime World is unavailable; demand factor systems cannot be resolved." }
             };
         }
 
         var notes = new List<string>
         {
-            "demand bars normalize -100..100 ECS demand to 0..1 where 0.5 ~= neutral.",
-            "factor maps aggregate medium-density residential factors plus commercial/industrial factor arrays."
+            "demand factors normalize signed game demand (-100..100) to 0..1 and export negative factor points."
         };
 
         ResidentialDemandSystem? residential = world.GetExistingSystemManaged<ResidentialDemandSystem>();
