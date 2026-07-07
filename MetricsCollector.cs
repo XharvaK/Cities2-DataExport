@@ -298,6 +298,24 @@ public sealed class MetricsCollector
 
     public CitySnapshotV1 CollectSnapshot(DateTimeOffset exportedAtUtc, string modVersion, string? gameBuild)
     {
+        RuntimeEcsMetricProbe? runtimeProbe = _probe as RuntimeEcsMetricProbe;
+        runtimeProbe?.BeginExportCycle();
+
+        try
+        {
+            using (ExportProfiler.Measure("collect_snapshot"))
+            {
+                return CollectSnapshotCore(exportedAtUtc, modVersion, gameBuild);
+            }
+        }
+        finally
+        {
+            runtimeProbe?.EndExportCycle();
+        }
+    }
+
+    private CitySnapshotV1 CollectSnapshotCore(DateTimeOffset exportedAtUtc, string modVersion, string? gameBuild)
+    {
         var city = SafeCollect(_probe.CollectCitySummary, CreateUnavailableCity);
         var population = SafeCollect(_probe.CollectPopulationSummary, CreateUnavailablePopulation);
         var education = SafeCollect(_probe.CollectEducationSummary, CreateUnavailableEducation);

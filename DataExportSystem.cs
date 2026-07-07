@@ -33,6 +33,7 @@ public sealed class DataExportSystem
     private DateTimeOffset? _transitCaptureStartedAtUtc;
     private bool _transitCaptureWindowActive;
     private bool _transitCaptureWindowConsumed;
+    private DateTimeOffset? _transitCaptureCooldownUntilUtc;
 
     public DataExportSystem(
         ExportSettings settings,
@@ -99,9 +100,13 @@ public sealed class DataExportSystem
                 _transitCaptureWindowActive = false;
                 _transitCaptureStartedAtUtc = null;
                 _transitCaptureWindowConsumed = false;
+                if (_settings.EffectiveTransitCaptureCooldownMinutes > 0)
+                {
+                    _transitCaptureCooldownUntilUtc = utcNow.AddMinutes(_settings.EffectiveTransitCaptureCooldownMinutes);
+                }
             }
 
-            if (ShouldStartTransitCaptureWindow())
+            if (ShouldStartTransitCaptureWindow(utcNow))
             {
                 _transitAccessGapCaptureCoordinator.StartCaptureWindow(utcNow, _settings);
                 _transitCaptureWindowActive = true;
@@ -143,11 +148,21 @@ public sealed class DataExportSystem
         return DateTimeOffset.FromUnixTimeSeconds(nextBoundary);
     }
 
-    private bool ShouldStartTransitCaptureWindow()
+    private bool ShouldStartTransitCaptureWindow(DateTimeOffset utcNow)
     {
-        return _settings.TransitTripCaptureMode == TransitTripCaptureMode.NextExportWindow
-            && !_transitCaptureWindowActive
-            && !_transitCaptureWindowConsumed;
+        if (_settings.TransitTripCaptureMode != TransitTripCaptureMode.NextExportWindow
+            || _transitCaptureWindowActive
+            || _transitCaptureWindowConsumed)
+        {
+            return false;
+        }
+
+        if (_transitCaptureCooldownUntilUtc.HasValue && utcNow < _transitCaptureCooldownUntilUtc.Value)
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private bool ShouldFinalizeTransitCaptureWindow(DateTimeOffset utcNow)

@@ -24,6 +24,8 @@ namespace CS2DataExport
 
     public sealed class SnapshotWriter
     {
+        private int _exportsSinceRetention;
+
         public SnapshotWriteResult WriteSnapshot(
             CitySnapshotV1 snapshot,
             DateTimeOffset exportedAtUtc,
@@ -39,12 +41,30 @@ namespace CS2DataExport
             string timestamp = exportedAtUtc.UtcDateTime.ToString("yyyyMMdd-HHmmss");
             string snapshotPath = Path.Combine(snapshotsDir, timestamp + ".json");
 
-            string payload = JSON.Dump(snapshot);
+            string payload;
+            using (ExportProfiler.Measure("json_dump"))
+            {
+                payload = JSON.Dump(snapshot);
+            }
 
-            WriteTextAtomic(snapshotPath, payload);
-            WriteTextAtomic(latestPath, payload);
+            using (ExportProfiler.Measure("write_latest"))
+            {
+                WriteTextAtomic(latestPath, payload);
+            }
 
-            int deleted = ApplyRetentionPolicy(snapshotsDir, settings.EffectiveRetentionCount);
+            using (ExportProfiler.Measure("write_snapshot"))
+            {
+                WriteTextAtomic(snapshotPath, payload);
+            }
+
+            int deleted = 0;
+            _exportsSinceRetention++;
+            if (_exportsSinceRetention >= 10)
+            {
+                _exportsSinceRetention = 0;
+                deleted = ApplyRetentionPolicy(snapshotsDir, settings.EffectiveRetentionCount);
+            }
+
             int kept = Directory.GetFiles(snapshotsDir, "*.json", SearchOption.TopDirectoryOnly).Length;
 
             return new SnapshotWriteResult(snapshotPath, latestPath, kept, deleted);

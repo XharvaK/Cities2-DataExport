@@ -341,7 +341,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         CountResult citizenCount = TryCountByAll(entityManager, s_populationCitizenCandidates);
         CountResult householdCount = TryCountByAll(entityManager, s_populationHouseholdCandidates);
-        bool hasDetailedScan = TryScanPopulationAndWorkforce(entityManager, out PopulationWorkforceScanResult scan, out string? scanError);
+        bool hasDetailedScan = TryGetCachedPopulationAndWorkforceScan(entityManager, out PopulationWorkforceScanResult scan, out string? scanError);
 
         var notes = new List<string>
         {
@@ -644,7 +644,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         CountResult citizenCount = TryCountByAll(entityManager, s_populationCitizenCandidates);
         CountResult workerCount = TryCountByAll(entityManager, s_populationWorkerCandidates);
-        bool hasDetailedScan = TryScanPopulationAndWorkforce(entityManager, out PopulationWorkforceScanResult scan, out string? scanError);
+        bool hasDetailedScan = TryGetCachedPopulationAndWorkforceScan(entityManager, out PopulationWorkforceScanResult scan, out string? scanError);
 
         double? employmentRatePercent = null;
         if (hasDetailedScan && scan.TotalPotentialWorkers > 0)
@@ -925,7 +925,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             };
         }
 
-        bool hasDetailedScan = TryScanPopulationAndWorkforce(entityManager, out PopulationWorkforceScanResult scan, out string? scanError);
+        bool hasDetailedScan = TryGetCachedPopulationAndWorkforceScan(entityManager, out PopulationWorkforceScanResult scan, out string? scanError);
         if (!hasDetailedScan)
         {
             return new WorkforceSummary
@@ -973,7 +973,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             };
         }
 
-        bool hasWorkplaceScan = TryScanWorkplaces(entityManager, out WorkplacesScanResult scan, out string? scanError);
+        bool hasWorkplaceScan = TryGetCachedWorkplaceScan(entityManager, out WorkplacesScanResult scan, out string? scanError);
         if (!hasWorkplaceScan)
         {
             return new WorkplacesSummary
@@ -1028,7 +1028,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         CountResult totalBuildings = TryCountByAll(entityManager, s_cityBuildingCandidates);
         CountResult residentialBuildings = TryCountByAny(entityManager, s_residentialBuildingFamilyCandidates);
         CountResult transportBuildings = TryCountByAny(entityManager, s_transportBuildingFamilyCandidates);
-        bool hasWorkplaceScan = TryScanWorkplaces(entityManager, out WorkplacesScanResult workplaceScan, out string? workplaceError);
+        bool hasWorkplaceScan = TryGetCachedWorkplaceScan(entityManager, out WorkplacesScanResult workplaceScan, out string? workplaceError);
 
         var notes = new List<string>
         {
@@ -1087,7 +1087,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             };
         }
 
-        bool hasWorkplaceScan = TryScanWorkplaces(entityManager, out WorkplacesScanResult scan, out string? workplaceError);
+        bool hasWorkplaceScan = TryGetCachedWorkplaceScan(entityManager, out WorkplacesScanResult scan, out string? workplaceError);
         if (!hasWorkplaceScan)
         {
             return new CompanyServiceSemanticsSummary
@@ -1190,7 +1190,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         CountResult totalHouseholds = TryCountByAll(entityManager, s_populationHouseholdCandidates);
         CountResult residentialBuildings = TryCountByAny(entityManager, s_residentialBuildingFamilyCandidates);
-        bool hasPopulationScan = TryScanPopulationAndWorkforce(entityManager, out PopulationWorkforceScanResult scan, out string? populationError);
+        bool hasPopulationScan = TryGetCachedPopulationAndWorkforceScan(entityManager, out PopulationWorkforceScanResult scan, out string? populationError);
 
         var notes = new List<string>
         {
@@ -1248,7 +1248,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         }
 
         CountResult totalHouseholds = TryCountByAll(entityManager, s_populationHouseholdCandidates);
-        bool hasPopulationScan = TryScanPopulationAndWorkforce(entityManager, out PopulationWorkforceScanResult scan, out string? populationError);
+        bool hasPopulationScan = TryGetCachedPopulationAndWorkforceScan(entityManager, out PopulationWorkforceScanResult scan, out string? populationError);
         if (!hasPopulationScan)
         {
             return new HouseholdPressureContextSummary
@@ -1302,8 +1302,8 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             };
         }
 
-        bool hasPopulationScan = TryScanPopulationAndWorkforce(entityManager, out PopulationWorkforceScanResult populationScan, out string? populationError);
-        bool hasWorkplaceScan = TryScanWorkplaces(entityManager, out WorkplacesScanResult workplaceScan, out string? workplaceError);
+        bool hasPopulationScan = TryGetCachedPopulationAndWorkforceScan(entityManager, out PopulationWorkforceScanResult populationScan, out string? populationError);
+        bool hasWorkplaceScan = TryGetCachedWorkplaceScan(entityManager, out WorkplacesScanResult workplaceScan, out string? workplaceError);
         if (!hasPopulationScan || !hasWorkplaceScan)
         {
             var failureNotes = new List<string>();
@@ -1394,7 +1394,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         double? lineVehicleEntitiesP50 = null;
         double? lineVehicleEntitiesP95 = null;
         IReadOnlyDictionary<long, TransportLineUsageEntry>? lineUsageByEntity = null;
-        if (TryScanTransportLineUsage(entityManager, out TransportLineUsageScanResult lineUsageScan, out string? lineUsageError))
+        if (TryGetCachedTransportLineUsageScan(entityManager, out TransportLineUsageScanResult lineUsageScan, out string? lineUsageError))
         {
             lineUsageByEntity = BuildLineUsageEntryLookup(lineUsageScan.LineUsageByTransportType);
             notes.Add("line usage now includes onboard passengers and total passenger capacity when those vehicle capacities can be resolved.");
@@ -1407,7 +1407,10 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         MobilityLineRecord[] topLinesByActiveVehicles = Array.Empty<MobilityLineRecord>();
         MobilityLineRecord[] lines = Array.Empty<MobilityLineRecord>();
         bool lineDataAvailable = false;
-        if (TryCollectObservedMobilityLineData(entityManager, lineUsageByEntity, out ObservedMobilityLineData observedLines, out string? observedError))
+        string? sortedLinesError = null;
+        string? observedError = null;
+        if (TryGetCachedSortedLines(entityManager, out UITransportLineData[] cachedSortedLines, out sortedLinesError)
+            && TryCollectObservedMobilityLineData(entityManager, lineUsageByEntity, cachedSortedLines, out ObservedMobilityLineData observedLines, out observedError))
         {
             lineDataAvailable = true;
             lines = observedLines.Lines;
@@ -1432,6 +1435,10 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             {
                 notes.Add("no transit lines in city; line-level aggregates are zero.");
             }
+        }
+        else if (!string.IsNullOrWhiteSpace(sortedLinesError))
+        {
+            notes.Add("line-level mobility metrics unavailable: " + sortedLinesError);
         }
         else
         {
@@ -1492,29 +1499,21 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            PrefabSystem prefabSystem = entityManager.World.GetOrCreateSystemManaged<PrefabSystem>();
             NameSystem nameSystem = entityManager.World.GetOrCreateSystemManaged<NameSystem>();
             Type? lineComponentType = ResolveFirstComponentType(s_passengerLineCandidates);
             Type? xtmRouteExtraDataType = ResolveComponentType("BelzontTLM.XTMRouteExtraData");
 
-            using EntityQuery lineQuery = entityManager.CreateEntityQuery(
-                new EntityQueryDesc
+            if (!TryGetCachedSortedLines(entityManager, out UITransportLineData[] sortedLines, out string? sortedLinesError))
+            {
+                return new TransitLineDetailSemanticsSummary
                 {
-                    All = new[]
-                    {
-                        ComponentType.ReadOnly<Route>(),
-                        ComponentType.ReadOnly<TransportLine>(),
-                        ComponentType.ReadOnly<RouteWaypoint>(),
-                        ComponentType.ReadOnly<PrefabRef>()
-                    },
-                    None = new[]
-                    {
-                        ComponentType.ReadOnly<Deleted>(),
-                        ComponentType.ReadOnly<Temp>()
-                    }
-                });
+                    Status = MetricStatus.Partial,
+                    SourceComponent = "ecs.transit_line_detail",
+                    MetricMetadata = MetricMetadataDefaults.TransitLineDetailSemantics(),
+                    Notes = new[] { "transit line detail scan failed: " + (sortedLinesError ?? "sorted line query unavailable.") }
+                };
+            }
 
-            using NativeArray<UITransportLineData> sortedLines = TransportUIUtils.GetSortedLines(lineQuery, entityManager, prefabSystem);
             var lines = new List<TransitLineDetailRecord>(sortedLines.Length);
             int passengerLines = 0;
             int cargoLines = 0;
@@ -2035,6 +2034,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
     private bool TryCollectObservedMobilityLineData(
         EntityManager entityManager,
         IReadOnlyDictionary<long, TransportLineUsageEntry>? lineUsageByEntity,
+        UITransportLineData[] sortedLines,
         out ObservedMobilityLineData result,
         out string? error)
     {
@@ -2043,29 +2043,10 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            PrefabSystem prefabSystem = entityManager.World.GetOrCreateSystemManaged<PrefabSystem>();
             NameSystem nameSystem = entityManager.World.GetOrCreateSystemManaged<NameSystem>();
             Type? lineComponentType = ResolveFirstComponentType(s_passengerLineCandidates);
             Type? xtmRouteExtraDataType = ResolveComponentType("BelzontTLM.XTMRouteExtraData");
 
-            using EntityQuery lineQuery = entityManager.CreateEntityQuery(
-                new EntityQueryDesc
-                {
-                    All = new[]
-                    {
-                        ComponentType.ReadOnly<Route>(),
-                        ComponentType.ReadOnly<TransportLine>(),
-                        ComponentType.ReadOnly<RouteWaypoint>(),
-                        ComponentType.ReadOnly<PrefabRef>()
-                    },
-                    None = new[]
-                    {
-                        ComponentType.ReadOnly<Deleted>(),
-                        ComponentType.ReadOnly<Temp>()
-                    }
-                });
-
-            using NativeArray<UITransportLineData> sortedLines = TransportUIUtils.GetSortedLines(lineQuery, entityManager, prefabSystem);
             var lineModeCounts = CreateMobilityModeCounterDictionary();
             var activeVehicleModeCounts = CreateMobilityModeCounterDictionary();
             var vehicleCounts = new List<int>(sortedLines.Length);
@@ -2513,7 +2494,14 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             };
         }
 
-        bool hasHouseholdEconomy = TryScanHouseholdEconomy(entityManager, out HouseholdEconomyScanResult householdEconomy, out string? householdError);
+        bool hasHouseholdCombined = TryGetCachedHouseholdCombinedScan(
+            entityManager,
+            out HouseholdCombinedScanResult householdCombined,
+            out string? householdError);
+        bool hasHouseholdEconomy = hasHouseholdCombined && householdCombined.Economy.HasValue;
+        HouseholdEconomyScanResult householdEconomy = hasHouseholdEconomy
+            ? householdCombined.Economy!.Value
+            : default;
         bool hasLandValue = TryScanBuildingLandValue(entityManager, out LandValueScanResult landValue, out string? landValueError);
 
         var notes = new List<string>();
@@ -2630,8 +2618,8 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             };
         }
 
-        bool hasWorkforceScan = TryScanPopulationAndWorkforce(entityManager, out PopulationWorkforceScanResult workforceScan, out string? workforceError);
-        bool hasWorkplaceScan = TryScanWorkplaces(entityManager, out WorkplacesScanResult workplaceScan, out string? workplaceError);
+        bool hasWorkforceScan = TryGetCachedPopulationAndWorkforceScan(entityManager, out PopulationWorkforceScanResult workforceScan, out string? workforceError);
+        bool hasWorkplaceScan = TryGetCachedWorkplaceScan(entityManager, out WorkplacesScanResult workplaceScan, out string? workplaceError);
 
         LevelCountSummary? jobsAvailableByLevel = null;
         LevelCountSummary? jobsFilledByLevel = null;

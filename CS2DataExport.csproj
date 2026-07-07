@@ -77,7 +77,8 @@
 		<Compile Include="RuntimeEcsMetricProbe.cs" />
 		<Compile Include="RuntimeEcsMetricProbe.Utilities.cs" />
 		<Compile Include="RuntimeEcsMetricProbe.Demand.cs" />
-		<Compile Include="RuntimeEcsMetricProbe.UtilitiesServices.cs" />
+		<Compile Include="RuntimeEcsMetricProbe.ExportCycle.cs" />
+		<Compile Include="ExportProfiler.cs" />
 		<Compile Include="DemandFactorsSemantics.cs" />
 		<Compile Include="UtilitiesServicesSemantics.cs" />
 		<Compile Include="UtilityPressureSemantics.cs" />

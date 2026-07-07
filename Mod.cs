@@ -65,6 +65,8 @@ namespace CS2DataExport
                 ", retention=" + _settings.EffectiveRetentionCount +
                 ", transit_capture=" + _settings.TransitTripCaptureMode +
                 ", transit_capture_min=" + _settings.EffectiveTransitTripCaptureWindowMinutes +
+                ", transit_observe_every_n_frames=" + _settings.EffectiveTransitObserveEveryNFrames +
+                ", transit_capture_cooldown_min=" + _settings.EffectiveTransitCaptureCooldownMinutes +
                 ", output='" + _settings.ResolveOutputRoot() + "'");
         }
 

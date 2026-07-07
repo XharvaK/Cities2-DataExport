@@ -27,6 +27,8 @@ public sealed class ExportSettings
     public int TransitTripCaptureClusterRadiusMeters { get; set; } = 192;
     public int TransitTripCaptureMaxSampleRoutesPerHotspot { get; set; } = 5;
     public int TransitTripCaptureMaxHotspots { get; set; } = 50;
+    public int TransitObserveEveryNFrames { get; set; } = 6;
+    public int TransitCaptureCooldownMinutes { get; set; }
 
     public int EffectiveIntervalMinutes => ClampInt(IntervalMinutes, 1, 720);
 
@@ -41,6 +43,10 @@ public sealed class ExportSettings
     public int EffectiveTransitTripCaptureMaxSampleRoutesPerHotspot => ClampInt(TransitTripCaptureMaxSampleRoutesPerHotspot, 1, 20);
 
     public int EffectiveTransitTripCaptureMaxHotspots => ClampInt(TransitTripCaptureMaxHotspots, 1, 200);
+
+    public int EffectiveTransitObserveEveryNFrames => ClampInt(TransitObserveEveryNFrames, 1, 60);
+
+    public int EffectiveTransitCaptureCooldownMinutes => ClampInt(TransitCaptureCooldownMinutes, 0, 720);
 
     public string ResolveOutputRoot()
     {
@@ -92,6 +98,20 @@ public sealed class ExportSettings
             && int.TryParse(captureWindowMinutes, out int parsedMinutes))
         {
             settings.TransitTripCaptureWindowMinutes = parsedMinutes;
+        }
+
+        string? observeEveryNFrames = Environment.GetEnvironmentVariable("CS2DATAEXPORT_TRANSIT_OBSERVE_EVERY_N_FRAMES");
+        if (!string.IsNullOrWhiteSpace(observeEveryNFrames)
+            && int.TryParse(observeEveryNFrames, out int parsedFrames))
+        {
+            settings.TransitObserveEveryNFrames = parsedFrames;
+        }
+
+        string? captureCooldownMinutes = Environment.GetEnvironmentVariable("CS2DATAEXPORT_TRANSIT_CAPTURE_COOLDOWN_MINUTES");
+        if (!string.IsNullOrWhiteSpace(captureCooldownMinutes)
+            && int.TryParse(captureCooldownMinutes, out int parsedCooldownMinutes))
+        {
+            settings.TransitCaptureCooldownMinutes = parsedCooldownMinutes;
         }
 
         return settings;
