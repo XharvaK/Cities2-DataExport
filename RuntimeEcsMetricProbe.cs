@@ -448,159 +448,187 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             "official city statistics are aggregate runtime counters from managed game systems and city singleton components."
         };
 
-        CityStatisticsSystem? statistics = world.GetExistingSystemManaged<CityStatisticsSystem>();
-        CitySystem? citySystem = world.GetExistingSystemManaged<CitySystem>();
-        TimeSystem? timeSystem = world.GetExistingSystemManaged<TimeSystem>();
-        SimulationSystem? simulationSystem = world.GetExistingSystemManaged<SimulationSystem>();
+        CityStatisticsSystem? statistics = null;
+        CitySystem? citySystem = null;
+        TimeSystem? timeSystem = null;
+        SimulationSystem? simulationSystem = null;
+        OfficialCitySingletonValues singletonValues = new(null, null, null, null, null);
+        DateTime? gameDate = null;
+        int? officialPopulation = null;
+        int? sampleCount = null;
+        int availableSystemCount = 0;
 
-        if (statistics == null)
+        try
         {
-            notes.Add("CityStatisticsSystem is unavailable.");
+            statistics = world.GetExistingSystemManaged<CityStatisticsSystem>();
+            citySystem = world.GetExistingSystemManaged<CitySystem>();
+            timeSystem = world.GetExistingSystemManaged<TimeSystem>();
+            simulationSystem = world.GetExistingSystemManaged<SimulationSystem>();
+
+            if (statistics == null)
+            {
+                notes.Add("CityStatisticsSystem is unavailable.");
+                return new OfficialCityStatisticsSummary
+                {
+                    Status = MetricStatus.Unavailable,
+                    Notes = notes.ToArray(),
+                    SourceComponent = "official.city_statistics:missing.CityStatisticsSystem"
+                };
+            }
+
+            if (citySystem == null)
+            {
+                notes.Add("CitySystem is unavailable; money is null.");
+            }
+
+            if (timeSystem == null)
+            {
+                notes.Add("TimeSystem is unavailable; game date and days_per_year are null.");
+            }
+
+            if (simulationSystem == null)
+            {
+                notes.Add("SimulationSystem is unavailable; game_tick is null.");
+            }
+
+            singletonValues = ReadOfficialCitySingletonValues(entityManager, notes);
+            gameDate = TryGetCurrentGameDate(timeSystem, notes);
+            officialPopulation = GetOfficialStatistic(statistics, StatisticType.Population);
+            sampleCount = TryGetSampleCount(statistics, notes);
+
+            availableSystemCount = 1
+                + (citySystem == null ? 0 : 1)
+                + (timeSystem == null ? 0 : 1)
+                + (simulationSystem == null ? 0 : 1);
+
+            notes.Add("finance.income and finance.expense sum all IncomeSource/ExpenseSource parameters.");
+            notes.Add("social.wellbeing and social.health are 0-100 averages (statistic sum / official population).");
+            notes.Add("taxes.*_taxable_income reads parameter 0 only; sector totals may be understated when sub-parameters exist.");
+
             return new OfficialCityStatisticsSummary
             {
-                Status = MetricStatus.Unavailable,
+                Status = availableSystemCount == 4 ? MetricStatus.Ok : MetricStatus.Partial,
                 Notes = notes.ToArray(),
-                SourceComponent = "official.city_statistics:missing.CityStatisticsSystem"
+                SourceComponent = "official.city_statistics:Game.City.CityStatisticsSystem|Game.City.CitySystem|Game.Simulation.TimeSystem|Game.Simulation.SimulationSystem|Game.City.Population|Game.City.Tourism|Game.City.DevTreePoints",
+                Time = new OfficialTimeStatistics
+                {
+                    GameTick = simulationSystem == null ? null : (ulong?)simulationSystem.frameIndex,
+                    GameYear = gameDate?.Year,
+                    GameMonth = gameDate?.Month,
+                    GameDay = gameDate?.Day,
+                    DaysPerYear = timeSystem?.daysPerYear,
+                    SampleCount = sampleCount,
+                    KUpdatesPerDay = TryReadKUpdatesPerDay(notes),
+                    KTicksPerDay = TryReadKTicksPerDay(notes)
+                },
+                Finance = new OfficialFinanceStatistics
+                {
+                    Money = TryReadCityMoney(citySystem, notes),
+                    Income = GetOfficialStatisticSum(statistics, StatisticType.Income, SafeIncomeSourceCount(notes)),
+                    Expense = GetOfficialStatisticSum(statistics, StatisticType.Expense, SafeExpenseSourceCount(notes)),
+                    Trade = GetOfficialStatistic(statistics, StatisticType.Trade)
+                },
+                Taxes = new OfficialTaxStatistics
+                {
+                    ResidentialTaxableIncome = GetOfficialStatistic(statistics, StatisticType.ResidentialTaxableIncome),
+                    CommercialTaxableIncome = GetOfficialStatistic(statistics, StatisticType.CommercialTaxableIncome),
+                    IndustrialTaxableIncome = GetOfficialStatistic(statistics, StatisticType.IndustrialTaxableIncome),
+                    OfficeTaxableIncome = GetOfficialStatistic(statistics, StatisticType.OfficeTaxableIncome)
+                },
+                PopulationFlow = new OfficialPopulationFlowStatistics
+                {
+                    Population = officialPopulation,
+                    PopulationWithMoveIn = singletonValues.PopulationWithMoveIn,
+                    CitizensMovedIn = GetOfficialStatistic(statistics, StatisticType.CitizensMovedIn),
+                    CitizensMovedAway = GetOfficialStatistic(statistics, StatisticType.CitizensMovedAway),
+                    BirthRate = GetOfficialStatistic(statistics, StatisticType.BirthRate),
+                    DeathRate = GetOfficialStatistic(statistics, StatisticType.DeathRate)
+                },
+                Social = new OfficialSocialStatistics
+                {
+                    Wellbeing = GetOfficialStatisticPerCapita(statistics, StatisticType.Wellbeing, officialPopulation),
+                    Health = GetOfficialStatisticPerCapita(statistics, StatisticType.Health, officialPopulation),
+                    WellbeingLevel = GetOfficialStatistic(statistics, StatisticType.WellbeingLevel),
+                    HealthLevel = GetOfficialStatistic(statistics, StatisticType.HealthLevel),
+                    HomelessCount = GetOfficialStatistic(statistics, StatisticType.HomelessCount),
+                    CrimeRate = GetOfficialStatistic(statistics, StatisticType.CrimeRate),
+                    CrimeCount = GetOfficialStatistic(statistics, StatisticType.CrimeCount),
+                    EscapedArrestCount = GetOfficialStatistic(statistics, StatisticType.EscapedArrestCount),
+                    CollectedMail = GetOfficialStatistic(statistics, StatisticType.CollectedMail),
+                    DeliveredMail = GetOfficialStatistic(statistics, StatisticType.DeliveredMail)
+                },
+                Tourism = new OfficialTourismStatistics
+                {
+                    TouristCount = GetOfficialStatistic(statistics, StatisticType.TouristCount),
+                    TouristIncome = GetOfficialStatistic(statistics, StatisticType.TouristIncome),
+                    LodgingUsed = GetOfficialStatistic(statistics, StatisticType.LodgingUsed),
+                    LodgingTotal = GetOfficialStatistic(statistics, StatisticType.LodgingTotal),
+                    CurrentTourists = singletonValues.CurrentTourists,
+                    AverageTourists = singletonValues.AverageTourists,
+                    Attractiveness = singletonValues.Attractiveness
+                },
+                TransportTotals = new OfficialTransportTotalsStatistics
+                {
+                    PassengerCountBus = GetOfficialStatistic(statistics, StatisticType.PassengerCountBus),
+                    PassengerCountSubway = GetOfficialStatistic(statistics, StatisticType.PassengerCountSubway),
+                    PassengerCountTrain = GetOfficialStatistic(statistics, StatisticType.PassengerCountTrain),
+                    PassengerCountTram = GetOfficialStatistic(statistics, StatisticType.PassengerCountTram),
+                    PassengerCountAirplane = GetOfficialStatistic(statistics, StatisticType.PassengerCountAirplane),
+                    PassengerCountTaxi = GetOfficialStatistic(statistics, StatisticType.PassengerCountTaxi),
+                    PassengerCountShip = GetOfficialStatistic(statistics, StatisticType.PassengerCountShip),
+                    CargoCountTruck = GetOfficialStatistic(statistics, StatisticType.CargoCountTruck),
+                    CargoCountTrain = GetOfficialStatistic(statistics, StatisticType.CargoCountTrain),
+                    CargoCountShip = GetOfficialStatistic(statistics, StatisticType.CargoCountShip),
+                    CargoCountAirplane = GetOfficialStatistic(statistics, StatisticType.CargoCountAirplane)
+                },
+                Sectors = new OfficialSectorStatistics
+                {
+                    Service = new OfficialSectorMetric
+                    {
+                        Wealth = GetOfficialStatistic(statistics, StatisticType.ServiceWealth),
+                        Count = GetOfficialStatistic(statistics, StatisticType.ServiceCount),
+                        Workers = GetOfficialStatistic(statistics, StatisticType.ServiceWorkers),
+                        MaxWorkers = GetOfficialStatistic(statistics, StatisticType.ServiceMaxWorkers)
+                    },
+                    Processing = new OfficialSectorMetric
+                    {
+                        Wealth = GetOfficialStatistic(statistics, StatisticType.ProcessingWealth),
+                        Count = GetOfficialStatistic(statistics, StatisticType.ProcessingCount),
+                        Workers = GetOfficialStatistic(statistics, StatisticType.ProcessingWorkers),
+                        MaxWorkers = GetOfficialStatistic(statistics, StatisticType.ProcessingMaxWorkers)
+                    },
+                    Office = new OfficialSectorMetric
+                    {
+                        Wealth = GetOfficialStatistic(statistics, StatisticType.OfficeWealth),
+                        Count = GetOfficialStatistic(statistics, StatisticType.OfficeCount),
+                        Workers = GetOfficialStatistic(statistics, StatisticType.OfficeWorkers),
+                        MaxWorkers = GetOfficialStatistic(statistics, StatisticType.OfficeMaxWorkers)
+                    }
+                },
+                CityServices = new OfficialCityServiceStatistics
+                {
+                    CityServiceWorkers = GetOfficialStatistic(statistics, StatisticType.CityServiceWorkers),
+                    CityServiceMaxWorkers = GetOfficialStatistic(statistics, StatisticType.CityServiceMaxWorkers),
+                    SeniorWorkerInDemandPercentage = GetOfficialStatistic(statistics, StatisticType.SeniorWorkerInDemandPercentage),
+                    DevTreePoints = singletonValues.DevTreePoints
+                }
             };
         }
-
-        if (citySystem == null)
+        catch (Exception ex)
         {
-            notes.Add("CitySystem is unavailable; money is null.");
+            notes.Add("official city statistics assembly failed: " + ex.Message);
+            return BuildRecoverableOfficialCityStatistics(
+                notes,
+                statistics,
+                citySystem,
+                timeSystem,
+                simulationSystem,
+                singletonValues,
+                gameDate,
+                officialPopulation,
+                sampleCount,
+                availableSystemCount);
         }
-
-        if (timeSystem == null)
-        {
-            notes.Add("TimeSystem is unavailable; game date and days_per_year are null.");
-        }
-
-        if (simulationSystem == null)
-        {
-            notes.Add("SimulationSystem is unavailable; game_tick is null.");
-        }
-
-        OfficialCitySingletonValues singletonValues = ReadOfficialCitySingletonValues(entityManager, notes);
-        DateTime? gameDate = TryGetCurrentGameDate(timeSystem, notes);
-        int? officialPopulation = GetOfficialStatistic(statistics, StatisticType.Population);
-        int? sampleCount = TryGetSampleCount(statistics, notes);
-
-        int availableSystemCount = 1
-            + (citySystem == null ? 0 : 1)
-            + (timeSystem == null ? 0 : 1)
-            + (simulationSystem == null ? 0 : 1);
-
-        notes.Add("finance.income and finance.expense sum all IncomeSource/ExpenseSource parameters.");
-        notes.Add("social.wellbeing and social.health are 0-100 averages (statistic sum / official population).");
-        notes.Add("taxes.*_taxable_income reads parameter 0 only; sector totals may be understated when sub-parameters exist.");
-
-        return new OfficialCityStatisticsSummary
-        {
-            Status = availableSystemCount == 4 ? MetricStatus.Ok : MetricStatus.Partial,
-            Notes = notes.ToArray(),
-            SourceComponent = "official.city_statistics:Game.City.CityStatisticsSystem|Game.City.CitySystem|Game.Simulation.TimeSystem|Game.Simulation.SimulationSystem|Game.City.Population|Game.City.Tourism|Game.City.DevTreePoints",
-            Time = new OfficialTimeStatistics
-            {
-                GameTick = simulationSystem == null ? null : (ulong?)simulationSystem.frameIndex,
-                GameYear = gameDate?.Year,
-                GameMonth = gameDate?.Month,
-                GameDay = gameDate?.Day,
-                DaysPerYear = timeSystem?.daysPerYear,
-                SampleCount = sampleCount,
-                KUpdatesPerDay = CityStatisticsSystem.kUpdatesPerDay,
-                KTicksPerDay = TimeSystem.kTicksPerDay
-            },
-            Finance = new OfficialFinanceStatistics
-            {
-                Money = citySystem?.moneyAmount,
-                Income = GetOfficialStatisticSum(statistics, StatisticType.Income, (int)IncomeSource.Count),
-                Expense = GetOfficialStatisticSum(statistics, StatisticType.Expense, (int)ExpenseSource.Count),
-                Trade = GetOfficialStatistic(statistics, StatisticType.Trade)
-            },
-            Taxes = new OfficialTaxStatistics
-            {
-                ResidentialTaxableIncome = GetOfficialStatistic(statistics, StatisticType.ResidentialTaxableIncome),
-                CommercialTaxableIncome = GetOfficialStatistic(statistics, StatisticType.CommercialTaxableIncome),
-                IndustrialTaxableIncome = GetOfficialStatistic(statistics, StatisticType.IndustrialTaxableIncome),
-                OfficeTaxableIncome = GetOfficialStatistic(statistics, StatisticType.OfficeTaxableIncome)
-            },
-            PopulationFlow = new OfficialPopulationFlowStatistics
-            {
-                Population = officialPopulation,
-                PopulationWithMoveIn = singletonValues.PopulationWithMoveIn,
-                CitizensMovedIn = GetOfficialStatistic(statistics, StatisticType.CitizensMovedIn),
-                CitizensMovedAway = GetOfficialStatistic(statistics, StatisticType.CitizensMovedAway),
-                BirthRate = GetOfficialStatistic(statistics, StatisticType.BirthRate),
-                DeathRate = GetOfficialStatistic(statistics, StatisticType.DeathRate)
-            },
-            Social = new OfficialSocialStatistics
-            {
-                Wellbeing = GetOfficialStatisticPerCapita(statistics, StatisticType.Wellbeing, officialPopulation),
-                Health = GetOfficialStatisticPerCapita(statistics, StatisticType.Health, officialPopulation),
-                WellbeingLevel = GetOfficialStatistic(statistics, StatisticType.WellbeingLevel),
-                HealthLevel = GetOfficialStatistic(statistics, StatisticType.HealthLevel),
-                HomelessCount = GetOfficialStatistic(statistics, StatisticType.HomelessCount),
-                CrimeRate = GetOfficialStatistic(statistics, StatisticType.CrimeRate),
-                CrimeCount = GetOfficialStatistic(statistics, StatisticType.CrimeCount),
-                EscapedArrestCount = GetOfficialStatistic(statistics, StatisticType.EscapedArrestCount),
-                CollectedMail = GetOfficialStatistic(statistics, StatisticType.CollectedMail),
-                DeliveredMail = GetOfficialStatistic(statistics, StatisticType.DeliveredMail)
-            },
-            Tourism = new OfficialTourismStatistics
-            {
-                TouristCount = GetOfficialStatistic(statistics, StatisticType.TouristCount),
-                TouristIncome = GetOfficialStatistic(statistics, StatisticType.TouristIncome),
-                LodgingUsed = GetOfficialStatistic(statistics, StatisticType.LodgingUsed),
-                LodgingTotal = GetOfficialStatistic(statistics, StatisticType.LodgingTotal),
-                CurrentTourists = singletonValues.CurrentTourists,
-                AverageTourists = singletonValues.AverageTourists,
-                Attractiveness = singletonValues.Attractiveness
-            },
-            TransportTotals = new OfficialTransportTotalsStatistics
-            {
-                PassengerCountBus = GetOfficialStatistic(statistics, StatisticType.PassengerCountBus),
-                PassengerCountSubway = GetOfficialStatistic(statistics, StatisticType.PassengerCountSubway),
-                PassengerCountTrain = GetOfficialStatistic(statistics, StatisticType.PassengerCountTrain),
-                PassengerCountTram = GetOfficialStatistic(statistics, StatisticType.PassengerCountTram),
-                PassengerCountAirplane = GetOfficialStatistic(statistics, StatisticType.PassengerCountAirplane),
-                PassengerCountTaxi = GetOfficialStatistic(statistics, StatisticType.PassengerCountTaxi),
-                PassengerCountShip = GetOfficialStatistic(statistics, StatisticType.PassengerCountShip),
-                CargoCountTruck = GetOfficialStatistic(statistics, StatisticType.CargoCountTruck),
-                CargoCountTrain = GetOfficialStatistic(statistics, StatisticType.CargoCountTrain),
-                CargoCountShip = GetOfficialStatistic(statistics, StatisticType.CargoCountShip),
-                CargoCountAirplane = GetOfficialStatistic(statistics, StatisticType.CargoCountAirplane)
-            },
-            Sectors = new OfficialSectorStatistics
-            {
-                Service = new OfficialSectorMetric
-                {
-                    Wealth = GetOfficialStatistic(statistics, StatisticType.ServiceWealth),
-                    Count = GetOfficialStatistic(statistics, StatisticType.ServiceCount),
-                    Workers = GetOfficialStatistic(statistics, StatisticType.ServiceWorkers),
-                    MaxWorkers = GetOfficialStatistic(statistics, StatisticType.ServiceMaxWorkers)
-                },
-                Processing = new OfficialSectorMetric
-                {
-                    Wealth = GetOfficialStatistic(statistics, StatisticType.ProcessingWealth),
-                    Count = GetOfficialStatistic(statistics, StatisticType.ProcessingCount),
-                    Workers = GetOfficialStatistic(statistics, StatisticType.ProcessingWorkers),
-                    MaxWorkers = GetOfficialStatistic(statistics, StatisticType.ProcessingMaxWorkers)
-                },
-                Office = new OfficialSectorMetric
-                {
-                    Wealth = GetOfficialStatistic(statistics, StatisticType.OfficeWealth),
-                    Count = GetOfficialStatistic(statistics, StatisticType.OfficeCount),
-                    Workers = GetOfficialStatistic(statistics, StatisticType.OfficeWorkers),
-                    MaxWorkers = GetOfficialStatistic(statistics, StatisticType.OfficeMaxWorkers)
-                }
-            },
-            CityServices = new OfficialCityServiceStatistics
-            {
-                CityServiceWorkers = GetOfficialStatistic(statistics, StatisticType.CityServiceWorkers),
-                CityServiceMaxWorkers = GetOfficialStatistic(statistics, StatisticType.CityServiceMaxWorkers),
-                SeniorWorkerInDemandPercentage = GetOfficialStatistic(statistics, StatisticType.SeniorWorkerInDemandPercentage),
-                DevTreePoints = singletonValues.DevTreePoints
-            }
-        };
     }
 
     public EducationSummary CollectEducationSummary()
@@ -6614,6 +6642,150 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         return total;
     }
 
+    private static OfficialCityStatisticsSummary BuildRecoverableOfficialCityStatistics(
+        List<string> notes,
+        CityStatisticsSystem? statistics,
+        CitySystem? citySystem,
+        TimeSystem? timeSystem,
+        SimulationSystem? simulationSystem,
+        OfficialCitySingletonValues singletonValues,
+        DateTime? gameDate,
+        int? officialPopulation,
+        int? sampleCount,
+        int availableSystemCount)
+    {
+        int resolvedSystemCount = availableSystemCount > 0
+            ? availableSystemCount
+            : (statistics == null ? 0 : 1)
+                + (citySystem == null ? 0 : 1)
+                + (timeSystem == null ? 0 : 1)
+                + (simulationSystem == null ? 0 : 1);
+
+        return new OfficialCityStatisticsSummary
+        {
+            Status = resolvedSystemCount >= 4 ? MetricStatus.Partial : MetricStatus.Partial,
+            Notes = notes.ToArray(),
+            SourceComponent = "official.city_statistics:recoverable",
+            Time = new OfficialTimeStatistics
+            {
+                GameTick = simulationSystem == null ? null : (ulong?)simulationSystem.frameIndex,
+                GameYear = gameDate?.Year,
+                GameMonth = gameDate?.Month,
+                GameDay = gameDate?.Day,
+                DaysPerYear = timeSystem?.daysPerYear,
+                SampleCount = sampleCount,
+                KUpdatesPerDay = TryReadKUpdatesPerDay(notes),
+                KTicksPerDay = TryReadKTicksPerDay(notes)
+            },
+            Finance = statistics == null
+                ? new OfficialFinanceStatistics
+                {
+                    Money = TryReadCityMoney(citySystem, notes)
+                }
+                : new OfficialFinanceStatistics
+                {
+                    Money = TryReadCityMoney(citySystem, notes),
+                    Income = GetOfficialStatisticSum(statistics, StatisticType.Income, SafeIncomeSourceCount(notes)),
+                    Expense = GetOfficialStatisticSum(statistics, StatisticType.Expense, SafeExpenseSourceCount(notes)),
+                    Trade = GetOfficialStatistic(statistics, StatisticType.Trade)
+                },
+            PopulationFlow = new OfficialPopulationFlowStatistics
+            {
+                Population = officialPopulation,
+                PopulationWithMoveIn = singletonValues.PopulationWithMoveIn
+            },
+            Social = statistics == null
+                ? new OfficialSocialStatistics()
+                : new OfficialSocialStatistics
+                {
+                    Wellbeing = GetOfficialStatisticPerCapita(statistics, StatisticType.Wellbeing, officialPopulation),
+                    Health = GetOfficialStatisticPerCapita(statistics, StatisticType.Health, officialPopulation),
+                    CrimeRate = GetOfficialStatistic(statistics, StatisticType.CrimeRate)
+                }
+        };
+    }
+
+    private static int? TryReadCityMoney(CitySystem? citySystem, List<string> notes)
+    {
+        if (citySystem == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            long money = citySystem.moneyAmount;
+            if (money > int.MaxValue)
+            {
+                return int.MaxValue;
+            }
+
+            if (money < int.MinValue)
+            {
+                return int.MinValue;
+            }
+
+            return (int)money;
+        }
+        catch (Exception ex)
+        {
+            notes.Add("city money unavailable: " + ex.Message);
+            return null;
+        }
+    }
+
+    private static int? TryReadKUpdatesPerDay(List<string> notes)
+    {
+        try
+        {
+            return CityStatisticsSystem.kUpdatesPerDay;
+        }
+        catch (Exception ex)
+        {
+            notes.Add("kUpdatesPerDay unavailable: " + ex.Message);
+            return null;
+        }
+    }
+
+    private static int? TryReadKTicksPerDay(List<string> notes)
+    {
+        try
+        {
+            return TimeSystem.kTicksPerDay;
+        }
+        catch (Exception ex)
+        {
+            notes.Add("kTicksPerDay unavailable: " + ex.Message);
+            return null;
+        }
+    }
+
+    private static int SafeIncomeSourceCount(List<string> notes)
+    {
+        try
+        {
+            return (int)IncomeSource.Count;
+        }
+        catch (Exception ex)
+        {
+            notes.Add("IncomeSource.Count unavailable: " + ex.Message);
+            return 0;
+        }
+    }
+
+    private static int SafeExpenseSourceCount(List<string> notes)
+    {
+        try
+        {
+            return (int)ExpenseSource.Count;
+        }
+        catch (Exception ex)
+        {
+            notes.Add("ExpenseSource.Count unavailable: " + ex.Message);
+            return 0;
+        }
+    }
+
     private static OfficialCitySingletonValues ReadOfficialCitySingletonValues(
         EntityManager entityManager,
         List<string> notes)
@@ -6632,7 +6804,12 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
                 return new OfficialCitySingletonValues(null, null, null, null, null);
             }
 
-            Entity cityEntity = query.GetSingletonEntity();
+            if (!query.TryGetSingletonEntity<City>(out Entity cityEntity))
+            {
+                notes.Add("city singleton query did not resolve a unique entity for Population, Tourism, and DevTreePoints.");
+                return new OfficialCitySingletonValues(null, null, null, null, null);
+            }
+
             var population = entityManager.GetComponentData<Population>(cityEntity);
             var tourism = entityManager.GetComponentData<Tourism>(cityEntity);
             var devTreePoints = entityManager.GetComponentData<DevTreePoints>(cityEntity);
