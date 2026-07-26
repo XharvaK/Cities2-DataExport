@@ -78,6 +78,8 @@
 		<Compile Include="RuntimeEcsMetricProbe.Utilities.cs" />
 		<Compile Include="RuntimeEcsMetricProbe.Demand.cs" />
 		<Compile Include="RuntimeEcsMetricProbe.ExportCycle.cs" />
+		<Compile Include="RuntimeEcsMetricProbe.DualScan.cs" />
+		<Compile Include="EcsScanAccumulators.cs" />
 		<Compile Include="ExportProfiler.cs" />
 		<Compile Include="DemandFactorsSemantics.cs" />
 		<Compile Include="UtilitiesServicesSemantics.cs" />

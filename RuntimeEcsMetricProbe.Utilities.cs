@@ -10,6 +10,23 @@ public sealed partial class RuntimeEcsMetricProbe
 {
     public UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummary()
     {
+        if (_utilityPressureCached && _cachedUtilityPressure != null)
+        {
+            return _cachedUtilityPressure;
+        }
+
+        UtilityPressureSemanticsSummary summary = CollectUtilityPressureSemanticsSummaryUncached();
+        if (_exportCycleActive)
+        {
+            _utilityPressureCached = true;
+            _cachedUtilityPressure = summary;
+        }
+
+        return summary;
+    }
+
+    private UtilityPressureSemanticsSummary CollectUtilityPressureSemanticsSummaryUncached()
+    {
         if (!TryGetEntityManager(out _, out string entityManagerReason))
         {
             return new UtilityPressureSemanticsSummary

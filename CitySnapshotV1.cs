@@ -39,7 +39,7 @@ public static class MetricTimeBasis
 public sealed class CitySnapshotV1
 {
     [JsonPropertyName("schema_version")]
-    public string SchemaVersion { get; init; } = "2.12.0";
+    public string SchemaVersion { get; init; } = "2.13.0";
 
     [JsonPropertyName("exported_at_utc")]
     public string ExportedAtUtc { get; init; } = string.Empty;
@@ -127,6 +127,13 @@ public abstract class MetricGroup
 
     [JsonPropertyName("notes")]
     public string[] Notes { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Tri-state for Python honesty: null = unknown (group does not use ECS sampling, or older mod),
+    /// false = exact full scan, true = sampled/scaled estimates.
+    /// </summary>
+    [JsonPropertyName("was_sampled")]
+    public bool? WasSampled { get; init; }
 }
 
 public sealed class CitySummary : MetricGroup

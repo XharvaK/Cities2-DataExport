@@ -35,6 +35,7 @@ namespace CS2DataExport
 
         private readonly object _queueLock = new();
         private readonly Action? _beforeWriteHook;
+        private readonly Action<string>? _log;
         private PendingWrite? _pending;
         private bool _workerRunning;
         private int _exportSequence;
@@ -43,17 +44,10 @@ namespace CS2DataExport
         private int _lastKeptSnapshots;
         private int _lastDeletedSnapshots;
 
-        public SnapshotWriter()
-            : this(null)
-        {
-        }
-
-        /// <summary>
-        /// Optional hook invoked on the writer thread before each disk write (tests only).
-        /// </summary>
-        public SnapshotWriter(Action? beforeWriteHook)
+        public SnapshotWriter(Action? beforeWriteHook = null, Action<string>? log = null)
         {
             _beforeWriteHook = beforeWriteHook;
+            _log = log;
         }
 
         public SnapshotWriteResult WriteSnapshot(
@@ -170,19 +164,19 @@ namespace CS2DataExport
             _beforeWriteHook?.Invoke();
 
             string payload;
-            using (ExportProfiler.Measure("json_dump"))
+            using (ExportProfiler.Measure("json_dump", _log))
             {
                 payload = JSON.Dump(work.Snapshot);
             }
 
-            using (ExportProfiler.Measure("write_latest"))
+            using (ExportProfiler.Measure("write_latest", _log))
             {
                 WriteTextAtomic(work.LatestPath, payload);
             }
 
             if (!string.IsNullOrWhiteSpace(work.DatedSnapshotPath))
             {
-                using (ExportProfiler.Measure("write_snapshot"))
+                using (ExportProfiler.Measure("write_snapshot", _log))
                 {
                     WriteTextAtomic(work.DatedSnapshotPath!, payload);
                 }

@@ -43,15 +43,20 @@ public sealed partial class RuntimeEcsMetricProbe
     private UITransportLineData[] _cachedSortedLines = Array.Empty<UITransportLineData>();
     private string? _sortedLinesError;
 
+    private bool _utilityPressureCached;
+    private UtilityPressureSemanticsSummary? _cachedUtilityPressure;
+
     private readonly Dictionary<(int Index, int Version, bool PreferNameLike), (bool Ok, string? Name, Type? ComponentType)> _displayNameCache = new();
 
     private World? _cachedQueryWorld;
     private EntityQuery _cachedCitizenPopulationQuery;
     private EntityQuery _cachedHouseholdQuery;
     private EntityQuery _cachedWorkplaceQuery;
+    private EntityQuery _cachedBuildingLandValueQuery;
     private bool _citizenPopulationQueryValid;
     private bool _householdQueryValid;
     private bool _workplaceQueryValid;
+    private bool _buildingLandValueQueryValid;
 
     public void BeginExportCycle()
     {
@@ -67,6 +72,8 @@ public sealed partial class RuntimeEcsMetricProbe
         _householdCombinedCached = false;
         _transportLineUsageCached = false;
         _sortedLinesCached = false;
+        _utilityPressureCached = false;
+        _cachedUtilityPressure = null;
         _cachedSortedLines = Array.Empty<UITransportLineData>();
         _displayNameCache.Clear();
     }
@@ -89,6 +96,12 @@ public sealed partial class RuntimeEcsMetricProbe
         {
             _cachedWorkplaceQuery.Dispose();
             _workplaceQueryValid = false;
+        }
+
+        if (_buildingLandValueQueryValid)
+        {
+            _cachedBuildingLandValueQuery.Dispose();
+            _buildingLandValueQueryValid = false;
         }
 
         _cachedQueryWorld = null;
@@ -184,6 +197,32 @@ public sealed partial class RuntimeEcsMetricProbe
             });
         _workplaceQueryValid = true;
         return _cachedWorkplaceQuery;
+    }
+
+    private EntityQuery GetOrCreateBuildingLandValueQuery(EntityManager entityManager)
+    {
+        EnsureQueryWorld(entityManager);
+        if (_buildingLandValueQueryValid)
+        {
+            return _cachedBuildingLandValueQuery;
+        }
+
+        _cachedBuildingLandValueQuery = entityManager.CreateEntityQuery(
+            new EntityQueryDesc
+            {
+                All = new[]
+                {
+                    ComponentType.ReadOnly<Building>(),
+                    ComponentType.ReadOnly<BuildingCondition>()
+                },
+                None = new[]
+                {
+                    ComponentType.ReadOnly<Deleted>(),
+                    ComponentType.ReadOnly<Temp>()
+                }
+            });
+        _buildingLandValueQueryValid = true;
+        return _cachedBuildingLandValueQuery;
     }
 
     private bool TryGetCachedPopulationAndWorkforceScan(
@@ -376,67 +415,78 @@ public sealed partial class RuntimeEcsMetricProbe
         error = null;
         result = default;
 
-        int localHouseholds = 0;
-        int movingAwayHouseholds = 0;
-        int homelessHouseholds = 0;
-        int propertyLinkedHouseholds = 0;
-        var resources = new List<int>(capacity: 4096);
+        var state = new EcsScanAccumulators.HouseholdCombinedState();
         bool wasSampled = false;
 
         try
         {
-            EntityQuery query = GetOrCreateHouseholdQuery(entityManager);
-            NativeArray<Entity> entities = query.ToEntityArray(Allocator.TempJob);
-            try
+            using (ExportProfiler.Measure("scan_household_combined", _log))
             {
-                int sampleStride = ComputeSamplingStride(entities.Length, _sampling.MaxHouseholdEntities);
+                EntityQuery query = GetOrCreateHouseholdQuery(entityManager);
+                int totalCount = query.CalculateEntityCount();
+                int sampleStride = ResolveScanStride(totalCount, _sampling.MaxHouseholdEntities, "household");
                 wasSampled = sampleStride > 1;
-                for (int i = 0; i < entities.Length; i += sampleStride)
+
+                ComponentTypeHandle<Household> householdHandle =
+                    entityManager.GetComponentTypeHandle<Household>(isReadOnly: true);
+                ComponentTypeHandle<PropertyRenter> propertyRenterHandle =
+                    entityManager.GetComponentTypeHandle<PropertyRenter>(isReadOnly: true);
+                ComponentTypeHandle<HomelessHousehold> homelessHandle =
+                    entityManager.GetComponentTypeHandle<HomelessHousehold>(isReadOnly: true);
+                ComponentTypeHandle<MovingAway> movingAwayHandle =
+                    entityManager.GetComponentTypeHandle<MovingAway>(isReadOnly: true);
+
+                NativeArray<ArchetypeChunk> chunks = query.ToArchetypeChunkArray(Allocator.Temp);
+                try
                 {
-                    Entity householdEntity = entities[i];
-                    Household household = entityManager.GetComponentData<Household>(householdEntity);
-                    if ((household.m_Flags & HouseholdFlags.MovedIn) == 0)
+                    int globalIndex = 0;
+                    for (int chunkIndex = 0; chunkIndex < chunks.Length; chunkIndex++)
                     {
-                        continue;
+                        ArchetypeChunk chunk = chunks[chunkIndex];
+                        int entityCount = chunk.Count;
+                        NativeArray<Household> households = chunk.GetNativeArray(ref householdHandle);
+                        bool hasPropertyRenter = chunk.Has(ref propertyRenterHandle);
+                        bool hasHomeless = chunk.Has(ref homelessHandle);
+                        bool hasMovingAway = chunk.Has(ref movingAwayHandle);
+
+                        for (int i = 0; i < entityCount; i++, globalIndex++)
+                        {
+                            if ((globalIndex % sampleStride) != 0)
+                            {
+                                continue;
+                            }
+
+                            Household household = households[i];
+                            var facts = new EcsScanAccumulators.HouseholdEntityFacts(
+                                isMovedIn: (household.m_Flags & HouseholdFlags.MovedIn) != 0,
+                                hasPropertyLink: hasPropertyRenter,
+                                isHomelessHousehold: hasHomeless,
+                                isMovingAway: hasMovingAway,
+                                isTourist: (household.m_Flags & HouseholdFlags.Tourist) != 0,
+                                isCommuter: (household.m_Flags & HouseholdFlags.Commuter) != 0,
+                                resources: household.m_Resources);
+
+                            EcsScanAccumulators.AccumulateHouseholdCombined(state, in facts);
+                        }
                     }
 
-                    localHouseholds++;
-
-                    bool hasPropertyLink = entityManager.HasComponent<PropertyRenter>(householdEntity);
-                    bool isHomeless = entityManager.HasComponent<HomelessHousehold>(householdEntity) || !hasPropertyLink;
-                    if (isHomeless)
+                    if (sampleStride > 1)
                     {
-                        homelessHouseholds++;
+                        state.LocalHouseholds = ScaleSampledCount(state.LocalHouseholds, sampleStride, totalCount);
+                        state.MovingAwayHouseholds = ScaleSampledCount(state.MovingAwayHouseholds, sampleStride, totalCount);
+                        state.HomelessHouseholds = ScaleSampledCount(state.HomelessHouseholds, sampleStride, totalCount);
+                        state.PropertyLinkedHouseholds = ScaleSampledCount(state.PropertyLinkedHouseholds, sampleStride, totalCount);
                     }
-
-                    if (hasPropertyLink)
+                }
+                finally
+                {
+                    if (chunks.IsCreated)
                     {
-                        propertyLinkedHouseholds++;
-                    }
-
-                    if (entityManager.HasComponent<MovingAway>(householdEntity))
-                    {
-                        movingAwayHouseholds++;
-                    }
-
-                    if ((household.m_Flags & HouseholdFlags.Tourist) == 0 &&
-                        (household.m_Flags & HouseholdFlags.Commuter) == 0)
-                    {
-                        resources.Add(household.m_Resources);
+                        chunks.Dispose();
                     }
                 }
 
-                if (sampleStride > 1)
-                {
-                    localHouseholds = ScaleSampledCount(localHouseholds, sampleStride, entities.Length);
-                    movingAwayHouseholds = ScaleSampledCount(movingAwayHouseholds, sampleStride, entities.Length);
-                    homelessHouseholds = ScaleSampledCount(homelessHouseholds, sampleStride, entities.Length);
-                    propertyLinkedHouseholds = ScaleSampledCount(propertyLinkedHouseholds, sampleStride, entities.Length);
-                }
-            }
-            finally
-            {
-                entities.Dispose();
+                MaybeDualScanHouseholdCombined(entityManager, query, state, sampleStride);
             }
         }
         catch (Exception ex)
@@ -446,29 +496,29 @@ public sealed partial class RuntimeEcsMetricProbe
         }
 
         HouseholdEconomyScanResult? economy = null;
-        if (resources.Count > 0)
+        if (state.Resources.Count > 0)
         {
-            resources.Sort();
+            state.Resources.Sort();
             long sum = 0;
-            for (int i = 0; i < resources.Count; i++)
+            for (int i = 0; i < state.Resources.Count; i++)
             {
-                sum += resources[i];
+                sum += state.Resources[i];
             }
 
-            double average = sum / (double)resources.Count;
+            double average = sum / (double)state.Resources.Count;
             economy = new HouseholdEconomyScanResult(
                 Average: Math.Round(average, 2, MidpointRounding.AwayFromZero),
-                P25: Math.Round(Percentile(resources, 0.25), 2, MidpointRounding.AwayFromZero),
-                P50: Math.Round(Percentile(resources, 0.50), 2, MidpointRounding.AwayFromZero),
-                P75: Math.Round(Percentile(resources, 0.75), 2, MidpointRounding.AwayFromZero),
+                P25: Math.Round(Percentile(state.Resources, 0.25), 2, MidpointRounding.AwayFromZero),
+                P50: Math.Round(Percentile(state.Resources, 0.50), 2, MidpointRounding.AwayFromZero),
+                P75: Math.Round(Percentile(state.Resources, 0.75), 2, MidpointRounding.AwayFromZero),
                 WasSampled: wasSampled);
         }
 
         result = new HouseholdCombinedScanResult(
-            LocalHouseholds: localHouseholds,
-            MovingAwayHouseholds: movingAwayHouseholds,
-            HomelessHouseholds: homelessHouseholds,
-            PropertyLinkedHouseholds: propertyLinkedHouseholds,
+            LocalHouseholds: state.LocalHouseholds,
+            MovingAwayHouseholds: state.MovingAwayHouseholds,
+            HomelessHouseholds: state.HomelessHouseholds,
+            PropertyLinkedHouseholds: state.PropertyLinkedHouseholds,
             WasSampled: wasSampled,
             Economy: economy);
         return true;

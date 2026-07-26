@@ -46,6 +46,8 @@ public sealed class TransitAccessGapRuntimeObserver
 
     private readonly TransitAccessGapCaptureCoordinator _coordinator;
 
+    private readonly Action<string>? _log;
+
     private readonly Dictionary<Entity, ActiveTrip> _activeTrips = new();
 
     private readonly List<Entity> _tripRemovals = new();
@@ -66,11 +68,14 @@ public sealed class TransitAccessGapRuntimeObserver
 
 
 
-    public TransitAccessGapRuntimeObserver(TransitAccessGapCaptureCoordinator coordinator)
+    public TransitAccessGapRuntimeObserver(
+        TransitAccessGapCaptureCoordinator coordinator,
+        Action<string>? log = null)
 
     {
 
         _coordinator = coordinator;
+        _log = log;
 
     }
 
@@ -136,26 +141,30 @@ public sealed class TransitAccessGapRuntimeObserver
 
         _observeTick++;
 
-        EntityQuery citizenPathQuery = GetCitizenPathQuery(entityManager);
-        int stopCount = GetStopQuery(entityManager).CalculateEntityCount();
-        if (stopCount != _lastObservedStopCount)
+        using (ExportProfiler.Measure("observer_tick", _log))
         {
-            ReplaceStops(entityManager, force: true);
-        }
+            EntityQuery citizenPathQuery = GetCitizenPathQuery(entityManager);
+            int stopCount = GetStopQuery(entityManager).CalculateEntityCount();
+            if (stopCount != _lastObservedStopCount)
+            {
+                ReplaceStops(entityManager, force: true);
+            }
 
-        using NativeArray<Entity> humans = citizenPathQuery.ToEntityArray(Allocator.Temp);
-        for (int index = 0; index < humans.Length; index++)
-        {
-            ProcessHuman(entityManager, humans[index], settings);
-        }
+            using NativeArray<Entity> humans = citizenPathQuery.ToEntityArray(Allocator.Temp);
+            for (int index = 0; index < humans.Length; index++)
+            {
+                ProcessHuman(entityManager, humans[index], settings);
+            }
 
-        PruneInactiveTrips();
+            PruneInactiveTrips();
 
-        if (ExportProfiler.Enabled && _observeTick % 120 == 0)
-        {
-            ExportProfiler.Log(
-                "profile observer entities=" + humans.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                + " active_trips=" + _activeTrips.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (ExportProfiler.Enabled && _observeTick % 120 == 0)
+            {
+                ExportProfiler.Log(
+                    "profile observer entities=" + humans.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + " active_trips=" + _activeTrips.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    _log);
+            }
         }
     }
 

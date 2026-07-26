@@ -10,6 +10,7 @@ namespace CS2DataExport
 
         private ExportSettings? _settings;
         private DataExportSystem? _dataExportSystem;
+        private RuntimeEcsMetricProbe? _runtimeProbe;
         private TransitAccessGapCaptureCoordinator? _transitAccessGapCaptureCoordinator;
         private TransitAccessGapRuntimeObserver? _transitAccessGapRuntimeObserver;
         private EntityManager? _entityManager;
@@ -31,17 +32,20 @@ namespace CS2DataExport
 
             _settings = ExportSettings.FromEnvironment();
             _transitAccessGapCaptureCoordinator = new TransitAccessGapCaptureCoordinator(new TransitAccessGapAnalyzer());
-            _transitAccessGapRuntimeObserver = new TransitAccessGapRuntimeObserver(_transitAccessGapCaptureCoordinator);
+            _transitAccessGapRuntimeObserver = new TransitAccessGapRuntimeObserver(
+                _transitAccessGapCaptureCoordinator,
+                log: SafeLog);
+            _runtimeProbe = new RuntimeEcsMetricProbe(
+                getEntityManager: () => _entityManager,
+                getWorld: () => _world,
+                log: SafeLog,
+                sampling: RuntimeEcsMetricProbe.ProbeSamplingOptions.FromEnvironment(),
+                transitAccessGapCaptureCoordinator: _transitAccessGapCaptureCoordinator);
             _dataExportSystem = new DataExportSystem(
                 settings: _settings,
-                collector: new MetricsCollector(
-                    new RuntimeEcsMetricProbe(
-                        getEntityManager: () => _entityManager,
-                        getWorld: () => _world,
-                        log: SafeLog,
-                        transitAccessGapCaptureCoordinator: _transitAccessGapCaptureCoordinator)),
-                writer: new SnapshotWriter(),
-                modVersion: "1.0.0",
+                collector: new MetricsCollector(_runtimeProbe, log: SafeLog),
+                writer: new SnapshotWriter(log: SafeLog),
+                modVersion: "1.1.1",
                 gameBuild: null,
                 transitAccessGapCaptureCoordinator: _transitAccessGapCaptureCoordinator,
                 log: SafeLog);
@@ -97,11 +101,13 @@ namespace CS2DataExport
         {
             SafeLog("disposed");
 
+            _runtimeProbe?.InvalidateCachedEntityQueries();
             _transitAccessGapCaptureCoordinator?.ResetForWorldUnload();
             _entityManager = null;
             _world = null;
             _settings = null;
             _dataExportSystem = null;
+            _runtimeProbe = null;
             _transitAccessGapCaptureCoordinator = null;
             _transitAccessGapRuntimeObserver = null;
             _initialized = false;
@@ -112,8 +118,7 @@ namespace CS2DataExport
             if (!ReferenceEquals(_world, world))
             {
                 _transitAccessGapCaptureCoordinator?.ResetForWorldUnload();
-                // Probe is owned by MetricsCollector inside DataExportSystem; recreate is heavy.
-                // Query invalidation happens via probe world check on next EnsureQueryWorld.
+                _runtimeProbe?.InvalidateCachedEntityQueries();
             }
 
             _entityManager = entityManager;

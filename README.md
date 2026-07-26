@@ -17,6 +17,7 @@ By default it:
 - writes a `latest.json` file for tools that only need the newest city state
 - leaves unavailable or unproven metrics in the file as `null` with status notes instead of guessing
 - runs transit trip capture in short windows with a default cooldown between windows (`CS2DATAEXPORT_TRANSIT_CAPTURE_COOLDOWN_MINUTES`, default 10)
+- scans ECS population / household / workplace counts exactly by default (`Max*Entities = 0` → stride 1). Set a positive `CS2DATAEXPORT_MAX_POPULATION_ENTITIES`, `CS2DATAEXPORT_MAX_HOUSEHOLD_ENTITIES`, or `CS2DATAEXPORT_MAX_WORKPLACE_ENTITIES` to restore sampling for those scans and for land-value / transit-vehicle / occupancy paths that reuse the same options. The transit access-gap observer remains frame-strided (`CS2DATAEXPORT_TRANSIT_OBSERVE_EVERY_N_FRAMES`), not entity-strided. Metric groups that use ECS sampling expose `was_sampled`. Enable timing logs with `CS2DATAEXPORT_PROFILE=1`. Set `CS2DATAEXPORT_DUAL_SCAN=1` to also run the legacy `ToEntityArray` path at stride 1 in the same cycle and log field mismatches against the chunk path.
 
 The mod does not upload data anywhere. It only writes files on your machine.
 
@@ -39,7 +40,7 @@ snapshots\<timestamp>.json
 
 ## What Is In The Export
 
-Current schema version: `2.12.0`
+Current schema version: `2.13.0`
 
 Top-level data groups include:
 
@@ -187,7 +188,7 @@ More detailed Windows install notes are in [INSTALL.md](INSTALL.md).
 
 Cities: Skylines II patches can change internal ECS components, systems, or modding toolchain behavior. After a game update, rebuild the mod and check that `latest.json` is still being written before relying on the export.
 
-The current public schema target is `2.12.0`. Additive fields may appear over time. Breaking schema changes should be reflected by a schema version update.
+The current public schema target is `2.13.0`. Additive fields may appear over time. Breaking schema changes should be reflected by a schema version update.
 
 ## Status
 

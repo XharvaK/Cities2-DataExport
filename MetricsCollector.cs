@@ -290,10 +290,12 @@ public sealed class DefaultMetricProbe : IMetricProbe
 public sealed class MetricsCollector
 {
     private readonly IMetricProbe _probe;
+    private readonly Action<string>? _log;
 
-    public MetricsCollector(IMetricProbe? probe = null)
+    public MetricsCollector(IMetricProbe? probe = null, Action<string>? log = null)
     {
         _probe = probe ?? new DefaultMetricProbe();
+        _log = log;
     }
 
     public CitySnapshotV1 CollectSnapshot(DateTimeOffset exportedAtUtc, string modVersion, string? gameBuild)
@@ -304,7 +306,7 @@ public sealed class MetricsCollector
 #endif
         try
         {
-            using (ExportProfiler.Measure("collect_snapshot"))
+            using (ExportProfiler.Measure("collect_snapshot", _log))
             {
                 return CollectSnapshotCore(exportedAtUtc, modVersion, gameBuild);
             }
@@ -380,7 +382,7 @@ public sealed class MetricsCollector
 
         return new CitySnapshotV1
         {
-            SchemaVersion = "2.12.0",
+            SchemaVersion = "2.13.0",
             ExportedAtUtc = exportedAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
             GameBuild = gameBuild,
             ModVersion = modVersion,
@@ -431,7 +433,7 @@ public sealed class MetricsCollector
     {
         var notes = new List<string>
         {
-            "schema 2.12.0 exports observed and derived metrics only."
+            "schema 2.13.0 exports observed and derived metrics only."
         };
 
         foreach (var pair in metricStatus)

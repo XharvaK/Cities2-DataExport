@@ -20,6 +20,7 @@
     <Compile Include="..\..\MetricsCollector.cs" Link="MetricsCollector.cs" />
     <Compile Include="..\..\SnapshotWriter.cs" Link="SnapshotWriter.cs" />
     <Compile Include="..\..\ExportProfiler.cs" Link="ExportProfiler.cs" />
+    <Compile Include="..\..\EcsScanAccumulators.cs" Link="EcsScanAccumulators.cs" />
     <Compile Include="..\..\TransitAccessGapAnalyzer.cs" Link="TransitAccessGapAnalyzer.cs" />
     <Compile Include="..\..\TransitAccessGapCaptureCoordinator.cs" Link="TransitAccessGapCaptureCoordinator.cs" />
     <Compile Include="..\..\TransitAccessGapRouteSampleProjection.cs" Link="TransitAccessGapRouteSampleProjection.cs" />

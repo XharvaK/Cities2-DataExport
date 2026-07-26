@@ -1,6 +1,10 @@
 # CitySnapshotV1
 
-Schema version: `2.12.0`
+Schema version: `2.13.0`
+
+`2.13.0` is an additive refresh over `2.12.0`:
+- adds optional `was_sampled` (`bool|null`) on metric groups for sampling honesty (`null` = unknown / N/A, `false` = exact, `true` = scaled estimate)
+- default ECS scan sampling caps are `0` (exact); positive env caps remain as rollback
 
 `2.12.0` is an additive refresh over `2.11.0`:
 - keeps the same public metric groups as `2.11.0`
@@ -88,6 +92,7 @@ Schema version: `2.12.0`
 Each group includes:
 - `status`: `ok|partial|unavailable`
 - `notes`: `string[]`
+- `was_sampled` (`bool|null`, since `2.13.0`): `null` = unknown / N/A (or older mod), `false` = exact, `true` = sampled/scaled
 
 Unavailable metrics remain present with `null`.
 

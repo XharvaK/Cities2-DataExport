@@ -185,14 +185,57 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
     private readonly Func<EntityManager?> _getEntityManager;
     private readonly Func<World?> _getWorld;
+    private readonly Action<string>? _log;
     private readonly ProbeSamplingOptions _sampling;
+    private readonly bool _dualScanEnabled;
     private readonly TransitAccessGapCaptureCoordinator? _transitAccessGapCaptureCoordinator;
 
     public sealed class ProbeSamplingOptions
     {
-        public int MaxPopulationEntities { get; init; } = 120000;
-        public int MaxWorkplaceEntities { get; init; } = 70000;
-        public int MaxHouseholdEntities { get; init; } = 120000;
+        /// <summary>0 = exact (stride 1). Non-zero restores a sampling cap.</summary>
+        public const int DefaultMaxPopulationEntities = 0;
+        /// <summary>0 = exact (stride 1). Also used by land-value and transit-vehicle strides.</summary>
+        public const int DefaultMaxWorkplaceEntities = 0;
+        /// <summary>0 = exact (stride 1).</summary>
+        public const int DefaultMaxHouseholdEntities = 0;
+
+        public int MaxPopulationEntities { get; init; } = DefaultMaxPopulationEntities;
+        public int MaxWorkplaceEntities { get; init; } = DefaultMaxWorkplaceEntities;
+        public int MaxHouseholdEntities { get; init; } = DefaultMaxHouseholdEntities;
+
+        /// <summary>
+        /// Reads optional sampling caps from the environment.
+        /// 0 (or any negative value after parse) means exact counts (stride 1).
+        /// Unset vars keep the defaults above (exact). Set a positive cap to restore sampling
+        /// for population/household/workplace scans and for land-value / transit / occupancy
+        /// paths that reuse MaxPopulationEntities / MaxWorkplaceEntities.
+        /// </summary>
+        public static ProbeSamplingOptions FromEnvironment()
+        {
+            return new ProbeSamplingOptions
+            {
+                MaxPopulationEntities = ReadMaxEntityEnv(
+                    "CS2DATAEXPORT_MAX_POPULATION_ENTITIES",
+                    DefaultMaxPopulationEntities),
+                MaxWorkplaceEntities = ReadMaxEntityEnv(
+                    "CS2DATAEXPORT_MAX_WORKPLACE_ENTITIES",
+                    DefaultMaxWorkplaceEntities),
+                MaxHouseholdEntities = ReadMaxEntityEnv(
+                    "CS2DATAEXPORT_MAX_HOUSEHOLD_ENTITIES",
+                    DefaultMaxHouseholdEntities)
+            };
+        }
+
+        private static int ReadMaxEntityEnv(string name, int fallback)
+        {
+            string? raw = Environment.GetEnvironmentVariable(name);
+            if (string.IsNullOrWhiteSpace(raw) || !int.TryParse(raw, out int parsed))
+            {
+                return fallback;
+            }
+
+            return parsed;
+        }
     }
 
     public RuntimeEcsMetricProbe(
@@ -204,9 +247,40 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
     {
         _getEntityManager = getEntityManager;
         _getWorld = getWorld ?? (() => null);
+        _log = log;
         _sampling = sampling ?? new ProbeSamplingOptions();
+        _dualScanEnabled = IsDualScanEnvEnabled();
         _transitAccessGapCaptureCoordinator = transitAccessGapCaptureCoordinator;
-        _ = log;
+    }
+
+    /// <summary>
+    /// When <c>CS2DATAEXPORT_DUAL_SCAN=1</c>, each of the three ECS scans also runs the legacy
+    /// <c>ToEntityArray</c> path at stride 1 in the same cycle and logs field mismatches.
+    /// </summary>
+    private static bool IsDualScanEnvEnabled()
+    {
+        string? raw = Environment.GetEnvironmentVariable("CS2DATAEXPORT_DUAL_SCAN");
+        return raw == "1" || string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Dual-scan forces stride 1 so chunk vs legacy comparisons are meaningful.
+    /// </summary>
+    private int ResolveScanStride(int totalCount, int maxSamples, string scanName)
+    {
+        int stride = ComputeSamplingStride(totalCount, maxSamples);
+        if (!_dualScanEnabled)
+        {
+            return stride;
+        }
+
+        if (stride > 1)
+        {
+            _log?.Invoke(
+                "dual-scan [" + scanName + "]: forcing stride 1 (configured stride was " + stride + ")");
+        }
+
+        return 1;
     }
 
     private sealed record OfficialCitySingletonValues(
@@ -387,7 +461,8 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             ChildrenPopulation = hasDetailedScan ? scan.ChildrenPopulation : null,
             ElderlyPopulation = hasDetailedScan ? scan.ElderlyPopulation : null,
             SourceComponent = BuildSourceComponent("ecs.population", citizenCount, householdCount),
-            Notes = notes.ToArray()
+            Notes = notes.ToArray(),
+            WasSampled = hasDetailedScan ? scan.WasSampled : null
         };
     }
 
@@ -756,7 +831,8 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             EmploymentRatePercent = employmentRatePercent,
             Levels = levels,
             SourceComponent = BuildSourceComponent("ecs.education_proxy", citizenCount, workerCount),
-            Notes = notes.ToArray()
+            Notes = notes.ToArray(),
+            WasSampled = hasDetailedScan ? scan.WasSampled : null
         };
     }
 
@@ -998,7 +1074,8 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
                 scan.WasSampled
                     ? "workforce scan used sampling guardrails for large cities; counts are scaled estimates."
                     : "workforce scan covered full eligible entity set."
-            }
+            },
+            WasSampled = scan.WasSampled
         };
     }
 
@@ -1050,7 +1127,8 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
                 scan.WasSampled
                     ? "workplaces scan used sampling guardrails for large provider sets; counts are scaled estimates."
                     : "workplaces scan covered full active provider set."
-            }
+            },
+            WasSampled = scan.WasSampled
         };
     }
 
@@ -1112,7 +1190,8 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             OfficeProviderEntities = hasWorkplaceScan ? workplaceScan.WorkProvidersOffice : null,
             SourceComponent = BuildSourceComponent("ecs.facility_identity", totalBuildings, residentialBuildings, transportBuildings) +
                 "|Game.Companies.WorkProvider|Game.Companies.Employee|Game.Prefabs.PrefabRef|Game.Prefabs.WorkplaceData|Game.Prefabs.IndustrialProcessData",
-            Notes = notes.ToArray()
+            Notes = notes.ToArray(),
+            WasSampled = hasWorkplaceScan ? workplaceScan.WasSampled : null
         };
     }
 
@@ -1213,7 +1292,8 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             JobsOpen = jobsOpen,
             FillPercent = fillPercent,
             SourceComponent = "ecs.company_service_semantics:Game.Companies.WorkProvider|Game.Companies.Employee|Game.Prefabs.WorkplaceData|Game.Prefabs.IndustrialProcessData|Game.Prefabs.PrefabRef",
-            Notes = notes.ToArray()
+            Notes = notes.ToArray(),
+            WasSampled = scan.WasSampled
         };
     }
 
@@ -1272,7 +1352,8 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
                 : null,
             SourceComponent = BuildSourceComponent("ecs.housing_pressure_semantics", totalHouseholds, residentialBuildings) +
                 "|Game.Citizens.Household|Game.Citizens.HouseholdMember|Game.Citizens.MovingAway|Game.Citizens.HomelessHousehold|Game.Buildings.PropertyRenter",
-            Notes = notes.ToArray()
+            Notes = notes.ToArray(),
+            WasSampled = hasPopulationScan ? scan.WasSampled : null
         };
     }
 
@@ -1327,7 +1408,8 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             MovingAwayHouseholdSharePercent = CalculatePercent(scan.MovingAwayHouseholds, totalHouseholds.Count ?? 0),
             SourceComponent = BuildSourceComponent("ecs.household_pressure_context", totalHouseholds) +
                 "|Game.Citizens.Household|Game.Citizens.HouseholdMember|Game.Citizens.MovingAway|Game.Citizens.HomelessHousehold|Game.Buildings.PropertyRenter",
-            Notes = notes.ToArray()
+            Notes = notes.ToArray(),
+            WasSampled = scan.WasSampled
         };
     }
 
@@ -1385,7 +1467,8 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             UnderemployedWorkerSharePercent = CalculatePercent(populationScan.TotalUnderemployedWorkers, Math.Max(1, populationScan.TotalPotentialWorkers)),
             CommuterEmployeeSharePercent = CalculatePercent(workplaceScan.CommuterEmployees, Math.Max(1, workplaceScan.FilledWorkplaces)),
             SourceComponent = "ecs.labor_pressure_context:Game.Citizens.Citizen|Game.Citizens.Worker|Game.Citizens.Student|Game.Companies.WorkProvider|Game.Companies.Employee",
-            Notes = notes.ToArray()
+            Notes = notes.ToArray(),
+            WasSampled = populationScan.WasSampled || workplaceScan.WasSampled
         };
     }
 
@@ -2586,7 +2669,10 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             CitizenWealthP75 = hasHouseholdEconomy ? householdEconomy.P75 : null,
             SourceComponent = "ecs.economy_signals:Game.Citizens.Household.m_Resources|Game.Net.LandValue|Game.Buildings.Building.m_RoadEdge",
             MetricMetadata = CreateEconomyMetricMetadata(),
-            Notes = notes.ToArray()
+            Notes = notes.ToArray(),
+            WasSampled = (hasHouseholdEconomy && householdEconomy.WasSampled) || (hasLandValue && landValue.WasSampled)
+                ? true
+                : (hasHouseholdEconomy || hasLandValue) ? false : null
         };
     }
 
@@ -2757,7 +2843,10 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             WorkforceByEducationLevel = workforceByLevel,
             SourceComponent = "ecs.labor_market_detail:Game.Companies.WorkProvider|Game.Companies.Employee|Game.Citizens.Citizen|Game.Citizens.Worker|Game.Citizens.Student",
             MetricMetadata = CreateLaborMarketMetricMetadata(),
-            Notes = notes.ToArray()
+            Notes = notes.ToArray(),
+            WasSampled = (hasWorkplaceScan && workplaceScan.WasSampled) || (hasWorkforceScan && workforceScan.WasSampled)
+                ? true
+                : (hasWorkplaceScan || hasWorkforceScan) ? false : null
         };
     }
 
@@ -5356,172 +5445,136 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         out string? error)
     {
         error = null;
-
-        var localByEducation = new int[5];
-        var potentialByEducation = new int[5];
-        var workersByEducation = new int[5];
-        var unemployedByEducation = new int[5];
-        var homelessByEducation = new int[5];
-        var outsideByEducation = new int[5];
-        var underByEducation = new int[5];
-
-        int localPopulation = 0;
-        int touristPopulation = 0;
-        int commuterPopulation = 0;
-        int movingAwayPopulation = 0;
-        int homelessPopulation = 0;
-        int localHouseholds = 0;
-        int movingAwayHouseholds = 0;
-        int homelessHouseholds = 0;
-        int propertyLinkedHouseholds = 0;
-        int childrenPopulation = 0;
-        int elderlyPopulation = 0;
-        int workingAgePopulation = 0;
+        var state = new EcsScanAccumulators.PopulationWorkforceState();
         bool wasSampled = false;
 
         try
         {
-            EntityQuery query = GetOrCreateCitizenPopulationQuery(entityManager);
-            NativeArray<Entity> entities = query.ToEntityArray(Allocator.TempJob);
-            try
+            using (ExportProfiler.Measure("scan_population_workforce", _log))
             {
-                int sampleStride = ComputeSamplingStride(entities.Length, _sampling.MaxPopulationEntities);
+                EntityQuery query = GetOrCreateCitizenPopulationQuery(entityManager);
+                int totalCount = query.CalculateEntityCount();
+                int sampleStride = ResolveScanStride(totalCount, _sampling.MaxPopulationEntities, "population");
                 wasSampled = sampleStride > 1;
-                for (int i = 0; i < entities.Length; i += sampleStride)
+
+                ComponentTypeHandle<Citizen> citizenHandle =
+                    entityManager.GetComponentTypeHandle<Citizen>(isReadOnly: true);
+                ComponentTypeHandle<HouseholdMember> householdMemberHandle =
+                    entityManager.GetComponentTypeHandle<HouseholdMember>(isReadOnly: true);
+                ComponentTypeHandle<HealthProblem> healthProblemHandle =
+                    entityManager.GetComponentTypeHandle<HealthProblem>(isReadOnly: true);
+                ComponentTypeHandle<Worker> workerHandle =
+                    entityManager.GetComponentTypeHandle<Worker>(isReadOnly: true);
+                ComponentTypeHandle<Game.Citizens.Student> studentHandle =
+                    entityManager.GetComponentTypeHandle<Game.Citizens.Student>(isReadOnly: true);
+
+                NativeArray<ArchetypeChunk> chunks = query.ToArchetypeChunkArray(Allocator.Temp);
+                try
                 {
-                    Entity citizenEntity = entities[i];
-                    Citizen citizen = entityManager.GetComponentData<Citizen>(citizenEntity);
-                    HouseholdMember householdMember = entityManager.GetComponentData<HouseholdMember>(citizenEntity);
-                    Entity householdEntity = householdMember.m_Household;
-
-                    if (!entityManager.HasComponent<Household>(householdEntity))
+                    int globalIndex = 0;
+                    for (int chunkIndex = 0; chunkIndex < chunks.Length; chunkIndex++)
                     {
-                        continue;
-                    }
+                        ArchetypeChunk chunk = chunks[chunkIndex];
+                        int entityCount = chunk.Count;
+                        NativeArray<Citizen> citizens = chunk.GetNativeArray(ref citizenHandle);
+                        NativeArray<HouseholdMember> householdMembers = chunk.GetNativeArray(ref householdMemberHandle);
+                        bool hasHealthProblem = chunk.Has(ref healthProblemHandle);
+                        bool hasWorkerComponent = chunk.Has(ref workerHandle);
+                        bool hasStudent = chunk.Has(ref studentHandle);
+                        NativeArray<HealthProblem> healthProblems = hasHealthProblem
+                            ? chunk.GetNativeArray(ref healthProblemHandle)
+                            : default;
+                        NativeArray<Worker> workers = hasWorkerComponent
+                            ? chunk.GetNativeArray(ref workerHandle)
+                            : default;
 
-                    Household household = entityManager.GetComponentData<Household>(householdEntity);
-                    if (household.m_Flags == HouseholdFlags.None)
-                    {
-                        continue;
-                    }
-
-                    bool isDead = entityManager.HasComponent<HealthProblem>(citizenEntity) &&
-                                  CitizenUtils.IsDead(entityManager.GetComponentData<HealthProblem>(citizenEntity));
-                    if (isDead)
-                    {
-                        continue;
-                    }
-
-                    bool isTourist = (citizen.m_State & CitizenFlags.Tourist) != 0;
-                    bool isCommuter = (citizen.m_State & CitizenFlags.Commuter) != 0;
-
-                    if (isTourist)
-                    {
-                        touristPopulation++;
-                        continue;
-                    }
-
-                    if (isCommuter)
-                    {
-                        commuterPopulation++;
-                        continue;
-                    }
-
-                    bool isMovedIn = (household.m_Flags & HouseholdFlags.MovedIn) != 0;
-                    if (!isMovedIn)
-                    {
-                        continue;
-                    }
-
-                    bool isHomeless = entityManager.HasComponent<HomelessHousehold>(householdEntity) ||
-                                      !entityManager.HasComponent<PropertyRenter>(householdEntity);
-                    bool isMovingAwayHousehold = entityManager.HasComponent<MovingAway>(householdEntity);
-
-                    if (isMovingAwayHousehold)
-                    {
-                        movingAwayPopulation++;
-                        continue;
-                    }
-
-                    localPopulation++;
-
-                    if (isHomeless)
-                    {
-                        homelessPopulation++;
-                    }
-
-                    CitizenAge age = citizen.GetAge();
-                    if (age == CitizenAge.Child)
-                    {
-                        childrenPopulation++;
-                    }
-                    else if (age == CitizenAge.Elderly)
-                    {
-                        elderlyPopulation++;
-                    }
-                    else
-                    {
-                        workingAgePopulation++;
-                    }
-
-                    int educationLevel = ClampEducationLevel(citizen.GetEducationLevel());
-                    localByEducation[educationLevel]++;
-
-                    bool isStudent = entityManager.HasComponent<Game.Citizens.Student>(citizenEntity);
-                    if (!IsWorkingAge(age) || isStudent)
-                    {
-                        continue;
-                    }
-
-                    potentialByEducation[educationLevel]++;
-                    if (entityManager.HasComponent<Worker>(citizenEntity))
-                    {
-                        workersByEducation[educationLevel]++;
-                        Worker worker = entityManager.GetComponentData<Worker>(citizenEntity);
-
-                        if (entityManager.HasComponent<Game.Objects.OutsideConnection>(worker.m_Workplace))
+                        for (int i = 0; i < entityCount; i++, globalIndex++)
                         {
-                            outsideByEducation[educationLevel]++;
-                        }
+                            if ((globalIndex % sampleStride) != 0)
+                            {
+                                continue;
+                            }
 
-                        if (worker.m_Level < educationLevel)
-                        {
-                            underByEducation[educationLevel]++;
+                            Citizen citizen = citizens[i];
+                            Entity householdEntity = householdMembers[i].m_Household;
+
+                            bool householdMissing = !entityManager.HasComponent<Household>(householdEntity);
+                            HouseholdFlags householdFlags = HouseholdFlags.None;
+                            bool isHomeless = false;
+                            bool isMovingAwayHousehold = false;
+                            bool isMovedIn = false;
+                            if (!householdMissing)
+                            {
+                                Household household = entityManager.GetComponentData<Household>(householdEntity);
+                                householdFlags = household.m_Flags;
+                                isMovedIn = (householdFlags & HouseholdFlags.MovedIn) != 0;
+                                isHomeless = entityManager.HasComponent<HomelessHousehold>(householdEntity) ||
+                                             !entityManager.HasComponent<PropertyRenter>(householdEntity);
+                                isMovingAwayHousehold = entityManager.HasComponent<MovingAway>(householdEntity);
+                            }
+
+                            bool isDead = hasHealthProblem && CitizenUtils.IsDead(healthProblems[i]);
+                            CitizenAge age = citizen.GetAge();
+                            bool hasWorker = hasWorkerComponent;
+                            bool workplaceIsOutside = false;
+                            int workerLevel = 0;
+                            if (hasWorker)
+                            {
+                                Worker worker = workers[i];
+                                workerLevel = worker.m_Level;
+                                workplaceIsOutside = entityManager.HasComponent<Game.Objects.OutsideConnection>(worker.m_Workplace);
+                            }
+
+                            var facts = new EcsScanAccumulators.CitizenEntityFacts(
+                                householdMissing: householdMissing,
+                                householdFlagsNone: householdFlags == HouseholdFlags.None,
+                                isDead: isDead,
+                                isTourist: (citizen.m_State & CitizenFlags.Tourist) != 0,
+                                isCommuter: (citizen.m_State & CitizenFlags.Commuter) != 0,
+                                isMovedIn: isMovedIn,
+                                isHomeless: isHomeless,
+                                isMovingAwayHousehold: isMovingAwayHousehold,
+                                age: (EcsScanAccumulators.CitizenAgeBucket)(int)age,
+                                educationLevel: citizen.GetEducationLevel(),
+                                isStudent: hasStudent,
+                                isWorkingAge: IsWorkingAge(age),
+                                hasWorker: hasWorker,
+                                workplaceIsOutsideConnection: workplaceIsOutside,
+                                workerLevel: workerLevel);
+
+                            EcsScanAccumulators.AccumulatePopulationAndWorkforce(state, in facts);
                         }
                     }
-                    else
+
+                    if (sampleStride > 1)
                     {
-                        unemployedByEducation[educationLevel]++;
-                        if (isHomeless)
-                        {
-                            homelessByEducation[educationLevel]++;
-                        }
+                        ScaleSampledArray(state.LocalByEducation, sampleStride, totalCount);
+                        ScaleSampledArray(state.PotentialByEducation, sampleStride, totalCount);
+                        ScaleSampledArray(state.WorkersByEducation, sampleStride, totalCount);
+                        ScaleSampledArray(state.UnemployedByEducation, sampleStride, totalCount);
+                        ScaleSampledArray(state.HomelessByEducation, sampleStride, totalCount);
+                        ScaleSampledArray(state.OutsideByEducation, sampleStride, totalCount);
+                        ScaleSampledArray(state.UnderByEducation, sampleStride, totalCount);
+
+                        state.LocalPopulation = ScaleSampledCount(state.LocalPopulation, sampleStride, totalCount);
+                        state.TouristPopulation = ScaleSampledCount(state.TouristPopulation, sampleStride, totalCount);
+                        state.CommuterPopulation = ScaleSampledCount(state.CommuterPopulation, sampleStride, totalCount);
+                        state.MovingAwayPopulation = ScaleSampledCount(state.MovingAwayPopulation, sampleStride, totalCount);
+                        state.HomelessPopulation = ScaleSampledCount(state.HomelessPopulation, sampleStride, totalCount);
+                        state.ChildrenPopulation = ScaleSampledCount(state.ChildrenPopulation, sampleStride, totalCount);
+                        state.ElderlyPopulation = ScaleSampledCount(state.ElderlyPopulation, sampleStride, totalCount);
+                        state.WorkingAgePopulation = ScaleSampledCount(state.WorkingAgePopulation, sampleStride, totalCount);
+                    }
+                }
+                finally
+                {
+                    if (chunks.IsCreated)
+                    {
+                        chunks.Dispose();
                     }
                 }
 
-                if (sampleStride > 1)
-                {
-                    ScaleSampledArray(localByEducation, sampleStride, entities.Length);
-                    ScaleSampledArray(potentialByEducation, sampleStride, entities.Length);
-                    ScaleSampledArray(workersByEducation, sampleStride, entities.Length);
-                    ScaleSampledArray(unemployedByEducation, sampleStride, entities.Length);
-                    ScaleSampledArray(homelessByEducation, sampleStride, entities.Length);
-                    ScaleSampledArray(outsideByEducation, sampleStride, entities.Length);
-                    ScaleSampledArray(underByEducation, sampleStride, entities.Length);
-
-                    localPopulation = ScaleSampledCount(localPopulation, sampleStride, entities.Length);
-                    touristPopulation = ScaleSampledCount(touristPopulation, sampleStride, entities.Length);
-                    commuterPopulation = ScaleSampledCount(commuterPopulation, sampleStride, entities.Length);
-                    movingAwayPopulation = ScaleSampledCount(movingAwayPopulation, sampleStride, entities.Length);
-                    homelessPopulation = ScaleSampledCount(homelessPopulation, sampleStride, entities.Length);
-                    childrenPopulation = ScaleSampledCount(childrenPopulation, sampleStride, entities.Length);
-                    elderlyPopulation = ScaleSampledCount(elderlyPopulation, sampleStride, entities.Length);
-                    workingAgePopulation = ScaleSampledCount(workingAgePopulation, sampleStride, entities.Length);
-                }
-            }
-            finally
-            {
-                entities.Dispose();
+                MaybeDualScanPopulationAndWorkforce(entityManager, query, state, sampleStride);
             }
         }
         catch (Exception ex)
@@ -5532,19 +5585,19 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         }
 
         WorkforceLevelSummary[] levels = CreateWorkforceLevels(
-            potentialByEducation,
-            workersByEducation,
-            unemployedByEducation,
-            homelessByEducation,
-            outsideByEducation,
-            underByEducation);
+            state.PotentialByEducation,
+            state.WorkersByEducation,
+            state.UnemployedByEducation,
+            state.HomelessByEducation,
+            state.OutsideByEducation,
+            state.UnderByEducation);
 
-        int totalPotential = SumArray(potentialByEducation);
-        int totalWorkers = SumArray(workersByEducation);
-        int totalUnemployed = SumArray(unemployedByEducation);
-        int totalHomelessUnemployed = SumArray(homelessByEducation);
-        int totalOutside = SumArray(outsideByEducation);
-        int totalUnder = SumArray(underByEducation);
+        int totalPotential = SumArray(state.PotentialByEducation);
+        int totalWorkers = SumArray(state.WorkersByEducation);
+        int totalUnemployed = SumArray(state.UnemployedByEducation);
+        int totalHomelessUnemployed = SumArray(state.HomelessByEducation);
+        int totalOutside = SumArray(state.OutsideByEducation);
+        int totalUnder = SumArray(state.UnderByEducation);
 
         if (!TryGetCachedHouseholdCombinedScan(
                 entityManager,
@@ -5556,26 +5609,22 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             return false;
         }
 
-        localHouseholds = householdCombined.LocalHouseholds;
-        movingAwayHouseholds = householdCombined.MovingAwayHouseholds;
-        homelessHouseholds = householdCombined.HomelessHouseholds;
-        propertyLinkedHouseholds = householdCombined.PropertyLinkedHouseholds;
         wasSampled = wasSampled || householdCombined.WasSampled;
 
         result = new PopulationWorkforceScanResult(
-            LocalPopulation: localPopulation,
-            TouristPopulation: touristPopulation,
-            CommuterPopulation: commuterPopulation,
-            MovingAwayPopulation: movingAwayPopulation,
-            HomelessPopulation: homelessPopulation,
-            LocalHouseholds: localHouseholds,
-            MovingAwayHouseholds: movingAwayHouseholds,
-            HomelessHouseholds: homelessHouseholds,
-            PropertyLinkedHouseholds: propertyLinkedHouseholds,
-            WorkingAgePopulation: workingAgePopulation,
-            ChildrenPopulation: childrenPopulation,
-            ElderlyPopulation: elderlyPopulation,
-            LocalByEducationLevel: localByEducation,
+            LocalPopulation: state.LocalPopulation,
+            TouristPopulation: state.TouristPopulation,
+            CommuterPopulation: state.CommuterPopulation,
+            MovingAwayPopulation: state.MovingAwayPopulation,
+            HomelessPopulation: state.HomelessPopulation,
+            LocalHouseholds: householdCombined.LocalHouseholds,
+            MovingAwayHouseholds: householdCombined.MovingAwayHouseholds,
+            HomelessHouseholds: householdCombined.HomelessHouseholds,
+            PropertyLinkedHouseholds: householdCombined.PropertyLinkedHouseholds,
+            WorkingAgePopulation: state.WorkingAgePopulation,
+            ChildrenPopulation: state.ChildrenPopulation,
+            ElderlyPopulation: state.ElderlyPopulation,
+            LocalByEducationLevel: state.LocalByEducation,
             WorkforceLevels: levels,
             TotalPotentialWorkers: totalPotential,
             TotalWorkers: totalWorkers,
@@ -5595,203 +5644,177 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         out string? error)
     {
         error = null;
-        var levels = new WorkplaceCounter[5];
-
-        int providersTotal = 0;
-        int providersService = 0;
-        int providersCommercial = 0;
-        int providersLeisure = 0;
-        int providersExtractor = 0;
-        int providersIndustrial = 0;
-        int providersOffice = 0;
+        var state = new EcsScanAccumulators.WorkplacesScanState();
         bool wasSampled = false;
 
         try
         {
-            EntityQuery query = GetOrCreateWorkplaceQuery(entityManager);
-            NativeArray<Entity> entities = query.ToEntityArray(Allocator.TempJob);
-            try
+            using (ExportProfiler.Measure("scan_workplaces", _log))
             {
-                int sampleStride = ComputeSamplingStride(entities.Length, _sampling.MaxWorkplaceEntities);
+                EntityQuery query = GetOrCreateWorkplaceQuery(entityManager);
+                int totalCount = query.CalculateEntityCount();
+                int sampleStride = ResolveScanStride(totalCount, _sampling.MaxWorkplaceEntities, "workplaces");
                 wasSampled = sampleStride > 1;
-                for (int i = 0; i < entities.Length; i += sampleStride)
+
+                ComponentTypeHandle<PrefabRef> prefabRefHandle =
+                    entityManager.GetComponentTypeHandle<PrefabRef>(isReadOnly: true);
+                ComponentTypeHandle<WorkProvider> workProviderHandle =
+                    entityManager.GetComponentTypeHandle<WorkProvider>(isReadOnly: true);
+                BufferTypeHandle<Employee> employeeBufferHandle =
+                    entityManager.GetBufferTypeHandle<Employee>(isReadOnly: true);
+                ComponentTypeHandle<PropertyRenter> propertyRenterHandle =
+                    entityManager.GetComponentTypeHandle<PropertyRenter>(isReadOnly: true);
+                ComponentTypeHandle<Game.Companies.ExtractorCompany> extractorHandle =
+                    entityManager.GetComponentTypeHandle<Game.Companies.ExtractorCompany>(isReadOnly: true);
+                ComponentTypeHandle<Game.Companies.IndustrialCompany> industrialHandle =
+                    entityManager.GetComponentTypeHandle<Game.Companies.IndustrialCompany>(isReadOnly: true);
+                ComponentTypeHandle<Game.Companies.CommercialCompany> commercialHandle =
+                    entityManager.GetComponentTypeHandle<Game.Companies.CommercialCompany>(isReadOnly: true);
+
+                NativeArray<ArchetypeChunk> chunks = query.ToArchetypeChunkArray(Allocator.Temp);
+                try
                 {
-                    Entity providerEntity = entities[i];
-                    PrefabRef prefabRef = entityManager.GetComponentData<PrefabRef>(providerEntity);
-                    Entity providerPrefab = prefabRef.m_Prefab;
-
-                    if (!entityManager.HasComponent<WorkplaceData>(providerPrefab))
+                    Span<int> commuterByLevel = stackalloc int[5];
+                    int globalIndex = 0;
+                    for (int chunkIndex = 0; chunkIndex < chunks.Length; chunkIndex++)
                     {
-                        continue;
-                    }
+                        ArchetypeChunk chunk = chunks[chunkIndex];
+                        int entityCount = chunk.Count;
+                        NativeArray<PrefabRef> prefabRefs = chunk.GetNativeArray(ref prefabRefHandle);
+                        NativeArray<WorkProvider> workProviders = chunk.GetNativeArray(ref workProviderHandle);
+                        BufferAccessor<Employee> employeeBuffers = chunk.GetBufferAccessor(ref employeeBufferHandle);
+                        bool hasPropertyRenter = chunk.Has(ref propertyRenterHandle);
+                        NativeArray<PropertyRenter> propertyRenters = hasPropertyRenter
+                            ? chunk.GetNativeArray(ref propertyRenterHandle)
+                            : default;
+                        bool isExtractorChunk = chunk.Has(ref extractorHandle);
+                        bool isIndustrialChunk = chunk.Has(ref industrialHandle);
+                        bool isCommercialChunk = chunk.Has(ref commercialHandle);
 
-                    WorkProvider workProvider = entityManager.GetComponentData<WorkProvider>(providerEntity);
-                    WorkplaceData workplaceData = entityManager.GetComponentData<WorkplaceData>(providerPrefab);
-                    DynamicBuffer<Employee> employees = entityManager.GetBuffer<Employee>(providerEntity);
-
-                    int buildingLevel = 1;
-                    if (entityManager.HasComponent<PropertyRenter>(providerEntity))
-                    {
-                        Entity propertyEntity = entityManager.GetComponentData<PropertyRenter>(providerEntity).m_Property;
-                        if (entityManager.HasComponent<PrefabRef>(propertyEntity))
+                        for (int i = 0; i < entityCount; i++, globalIndex++)
                         {
-                            Entity propertyPrefab = entityManager.GetComponentData<PrefabRef>(propertyEntity).m_Prefab;
-                            if (entityManager.HasComponent<SpawnableBuildingData>(propertyPrefab))
+                            if ((globalIndex % sampleStride) != 0)
                             {
-                                buildingLevel = (int)entityManager.GetComponentData<SpawnableBuildingData>(propertyPrefab).m_Level;
+                                continue;
                             }
+
+                            Entity providerPrefab = prefabRefs[i].m_Prefab;
+                            if (!entityManager.HasComponent<WorkplaceData>(providerPrefab))
+                            {
+                                continue;
+                            }
+
+                            WorkProvider workProvider = workProviders[i];
+                            WorkplaceData workplaceData = entityManager.GetComponentData<WorkplaceData>(providerPrefab);
+                            DynamicBuffer<Employee> employees = employeeBuffers[i];
+
+                            int buildingLevel = 1;
+                            if (hasPropertyRenter)
+                            {
+                                Entity propertyEntity = propertyRenters[i].m_Property;
+                                if (entityManager.HasComponent<PrefabRef>(propertyEntity))
+                                {
+                                    Entity propertyPrefab = entityManager.GetComponentData<PrefabRef>(propertyEntity).m_Prefab;
+                                    if (entityManager.HasComponent<SpawnableBuildingData>(propertyPrefab))
+                                    {
+                                        buildingLevel = (int)entityManager.GetComponentData<SpawnableBuildingData>(propertyPrefab).m_Level;
+                                    }
+                                }
+                            }
+
+                            EmploymentData workplacesData = EmploymentData.GetWorkplacesData(
+                                workProvider.m_MaxWorkers,
+                                buildingLevel,
+                                workplaceData.m_Complexity);
+
+                            int freePositions = Math.Max(0, workplacesData.total - employees.Length);
+                            EmploymentData employeesData = EmploymentData.GetEmployeesData(employees, freePositions);
+
+                            bool isExtractor = isExtractorChunk;
+                            bool isIndustrial = isIndustrialChunk;
+                            bool isCommercial = isCommercialChunk;
+                            bool isService = !isIndustrial && !isCommercial;
+
+                            bool isOffice = false;
+                            bool isLeisure = false;
+                            if (entityManager.HasComponent<IndustrialProcessData>(providerPrefab))
+                            {
+                                IndustrialProcessData process = entityManager.GetComponentData<IndustrialProcessData>(providerPrefab);
+                                Resource output = process.m_Output.m_Resource;
+                                isLeisure = (output & kLeisureResources) != Resource.NoResource;
+                                isOffice = (output & kOfficeResources) != Resource.NoResource;
+                            }
+
+                            commuterByLevel[0] = 0;
+                            commuterByLevel[1] = 0;
+                            commuterByLevel[2] = 0;
+                            commuterByLevel[3] = 0;
+                            commuterByLevel[4] = 0;
+                            for (int e = 0; e < employees.Length; e++)
+                            {
+                                Employee employee = employees[e];
+                                Entity workerEntity = employee.m_Worker;
+                                if (!entityManager.HasComponent<Citizen>(workerEntity))
+                                {
+                                    continue;
+                                }
+
+                                Citizen workerCitizen = entityManager.GetComponentData<Citizen>(workerEntity);
+                                if ((workerCitizen.m_State & CitizenFlags.Commuter) != 0)
+                                {
+                                    int level = ClampEducationLevel(employee.m_Level);
+                                    commuterByLevel[level]++;
+                                }
+                            }
+
+                            var facts = new EcsScanAccumulators.WorkplaceProviderFacts(
+                                hasWorkplaceData: true,
+                                workplacesUneducated: workplacesData.uneducated,
+                                workplacesPoorlyEducated: workplacesData.poorlyEducated,
+                                workplacesEducated: workplacesData.educated,
+                                workplacesWellEducated: workplacesData.wellEducated,
+                                workplacesHighlyEducated: workplacesData.highlyEducated,
+                                employeesUneducated: employeesData.uneducated,
+                                employeesPoorlyEducated: employeesData.poorlyEducated,
+                                employeesEducated: employeesData.educated,
+                                employeesWellEducated: employeesData.wellEducated,
+                                employeesHighlyEducated: employeesData.highlyEducated,
+                                commutersUneducated: commuterByLevel[0],
+                                commutersPoorlyEducated: commuterByLevel[1],
+                                commutersEducated: commuterByLevel[2],
+                                commutersWellEducated: commuterByLevel[3],
+                                commutersHighlyEducated: commuterByLevel[4],
+                                isService: isService,
+                                isCommercial: isCommercial,
+                                isLeisure: isLeisure,
+                                isExtractor: isExtractor,
+                                isOffice: isOffice);
+
+                            EcsScanAccumulators.AccumulateWorkplaceProvider(state, in facts);
                         }
                     }
 
-                    EmploymentData workplacesData = EmploymentData.GetWorkplacesData(
-                        workProvider.m_MaxWorkers,
-                        buildingLevel,
-                        workplaceData.m_Complexity);
-
-                    int freePositions = Math.Max(0, workplacesData.total - employees.Length);
-                    EmploymentData employeesData = EmploymentData.GetEmployeesData(employees, freePositions);
-
-                    bool isExtractor = entityManager.HasComponent<Game.Companies.ExtractorCompany>(providerEntity);
-                    bool isIndustrial = entityManager.HasComponent<Game.Companies.IndustrialCompany>(providerEntity);
-                    bool isCommercial = entityManager.HasComponent<Game.Companies.CommercialCompany>(providerEntity);
-                    bool isService = !isIndustrial && !isCommercial;
-
-                    bool isOffice = false;
-                    bool isLeisure = false;
-                    if (entityManager.HasComponent<IndustrialProcessData>(providerPrefab))
+                    if (sampleStride > 1)
                     {
-                        IndustrialProcessData process = entityManager.GetComponentData<IndustrialProcessData>(providerPrefab);
-                        Resource output = process.m_Output.m_Resource;
-                        isLeisure = (output & kLeisureResources) != Resource.NoResource;
-                        isOffice = (output & kOfficeResources) != Resource.NoResource;
-                    }
-
-                    var commuterByLevel = new int[5];
-                    for (int e = 0; e < employees.Length; e++)
-                    {
-                        Employee employee = employees[e];
-                        Entity workerEntity = employee.m_Worker;
-                        if (!entityManager.HasComponent<Citizen>(workerEntity))
-                        {
-                            continue;
-                        }
-
-                        Citizen workerCitizen = entityManager.GetComponentData<Citizen>(workerEntity);
-                        if ((workerCitizen.m_State & CitizenFlags.Commuter) != 0)
-                        {
-                            int level = ClampEducationLevel(employee.m_Level);
-                            commuterByLevel[level]++;
-                        }
-                    }
-
-                    AccumulateWorkplaceLevel(
-                        levels: levels,
-                        level: 0,
-                        workplaces: workplacesData.uneducated,
-                        employees: employeesData.uneducated,
-                        commuters: commuterByLevel[0],
-                        isService: isService,
-                        isCommercial: isCommercial,
-                        isLeisure: isLeisure,
-                        isExtractor: isExtractor,
-                        isOffice: isOffice);
-
-                    AccumulateWorkplaceLevel(
-                        levels: levels,
-                        level: 1,
-                        workplaces: workplacesData.poorlyEducated,
-                        employees: employeesData.poorlyEducated,
-                        commuters: commuterByLevel[1],
-                        isService: isService,
-                        isCommercial: isCommercial,
-                        isLeisure: isLeisure,
-                        isExtractor: isExtractor,
-                        isOffice: isOffice);
-
-                    AccumulateWorkplaceLevel(
-                        levels: levels,
-                        level: 2,
-                        workplaces: workplacesData.educated,
-                        employees: employeesData.educated,
-                        commuters: commuterByLevel[2],
-                        isService: isService,
-                        isCommercial: isCommercial,
-                        isLeisure: isLeisure,
-                        isExtractor: isExtractor,
-                        isOffice: isOffice);
-
-                    AccumulateWorkplaceLevel(
-                        levels: levels,
-                        level: 3,
-                        workplaces: workplacesData.wellEducated,
-                        employees: employeesData.wellEducated,
-                        commuters: commuterByLevel[3],
-                        isService: isService,
-                        isCommercial: isCommercial,
-                        isLeisure: isLeisure,
-                        isExtractor: isExtractor,
-                        isOffice: isOffice);
-
-                    AccumulateWorkplaceLevel(
-                        levels: levels,
-                        level: 4,
-                        workplaces: workplacesData.highlyEducated,
-                        employees: employeesData.highlyEducated,
-                        commuters: commuterByLevel[4],
-                        isService: isService,
-                        isCommercial: isCommercial,
-                        isLeisure: isLeisure,
-                        isExtractor: isExtractor,
-                        isOffice: isOffice);
-
-                    providersTotal++;
-                    if (isService)
-                    {
-                        providersService++;
-                    }
-                    else if (isCommercial)
-                    {
-                        if (isLeisure)
-                        {
-                            providersLeisure++;
-                        }
-                        else
-                        {
-                            providersCommercial++;
-                        }
-                    }
-                    else
-                    {
-                        if (isExtractor)
-                        {
-                            providersExtractor++;
-                        }
-                        else if (isOffice)
-                        {
-                            providersOffice++;
-                        }
-                        else
-                        {
-                            providersIndustrial++;
-                        }
+                        ScaleWorkplaceCounters(state.Levels, sampleStride, totalCount);
+                        state.ProvidersTotal = ScaleSampledCount(state.ProvidersTotal, sampleStride, totalCount);
+                        state.ProvidersService = ScaleSampledCount(state.ProvidersService, sampleStride, totalCount);
+                        state.ProvidersCommercial = ScaleSampledCount(state.ProvidersCommercial, sampleStride, totalCount);
+                        state.ProvidersLeisure = ScaleSampledCount(state.ProvidersLeisure, sampleStride, totalCount);
+                        state.ProvidersExtractor = ScaleSampledCount(state.ProvidersExtractor, sampleStride, totalCount);
+                        state.ProvidersIndustrial = ScaleSampledCount(state.ProvidersIndustrial, sampleStride, totalCount);
+                        state.ProvidersOffice = ScaleSampledCount(state.ProvidersOffice, sampleStride, totalCount);
                     }
                 }
-
-                if (sampleStride > 1)
+                finally
                 {
-                    ScaleWorkplaceCounters(levels, sampleStride, entities.Length);
-                    providersTotal = ScaleSampledCount(providersTotal, sampleStride, entities.Length);
-                    providersService = ScaleSampledCount(providersService, sampleStride, entities.Length);
-                    providersCommercial = ScaleSampledCount(providersCommercial, sampleStride, entities.Length);
-                    providersLeisure = ScaleSampledCount(providersLeisure, sampleStride, entities.Length);
-                    providersExtractor = ScaleSampledCount(providersExtractor, sampleStride, entities.Length);
-                    providersIndustrial = ScaleSampledCount(providersIndustrial, sampleStride, entities.Length);
-                    providersOffice = ScaleSampledCount(providersOffice, sampleStride, entities.Length);
+                    if (chunks.IsCreated)
+                    {
+                        chunks.Dispose();
+                    }
                 }
-            }
-            finally
-            {
-                entities.Dispose();
+
+                MaybeDualScanWorkplaces(entityManager, query, state, sampleStride);
             }
         }
         catch (Exception ex)
@@ -5821,7 +5844,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         for (int i = 0; i < 5; i++)
         {
-            WorkplaceCounter counter = levels[i];
+            EcsScanAccumulators.WorkplaceLevelCounter counter = state.Levels[i];
             levelSummary[i] = new WorkplaceLevelSummary
             {
                 Level = i,
@@ -5860,13 +5883,13 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             FilledWorkplaces: filledWorkplaces,
             OpenWorkplaces: openWorkplaces,
             CommuterEmployees: commuterEmployees,
-            WorkProvidersTotal: providersTotal,
-            WorkProvidersService: providersService,
-            WorkProvidersCommercial: providersCommercial,
-            WorkProvidersLeisure: providersLeisure,
-            WorkProvidersExtractor: providersExtractor,
-            WorkProvidersIndustrial: providersIndustrial,
-            WorkProvidersOffice: providersOffice,
+            WorkProvidersTotal: state.ProvidersTotal,
+            WorkProvidersService: state.ProvidersService,
+            WorkProvidersCommercial: state.ProvidersCommercial,
+            WorkProvidersLeisure: state.ProvidersLeisure,
+            WorkProvidersExtractor: state.ProvidersExtractor,
+            WorkProvidersIndustrial: state.ProvidersIndustrial,
+            WorkProvidersOffice: state.ProvidersOffice,
             ServiceWorkplacesTotal: serviceWorkplaces,
             CommercialWorkplacesTotal: commercialWorkplaces,
             LeisureWorkplacesTotal: leisureWorkplaces,
@@ -5885,171 +5908,6 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         return true;
     }
 
-    private bool TryScanHouseholdPressureContext(
-        EntityManager entityManager,
-        out int localHouseholds,
-        out int movingAwayHouseholds,
-        out int homelessHouseholds,
-        out int propertyLinkedHouseholds,
-        out bool wasSampled,
-        out string? error)
-    {
-        error = null;
-        localHouseholds = 0;
-        movingAwayHouseholds = 0;
-        homelessHouseholds = 0;
-        propertyLinkedHouseholds = 0;
-        wasSampled = false;
-
-        try
-        {
-            EntityQuery query = GetOrCreateHouseholdQuery(entityManager);
-            NativeArray<Entity> entities = query.ToEntityArray(Allocator.TempJob);
-            try
-            {
-                int sampleStride = ComputeSamplingStride(entities.Length, _sampling.MaxHouseholdEntities);
-                wasSampled = sampleStride > 1;
-                for (int i = 0; i < entities.Length; i += sampleStride)
-                {
-                    Entity householdEntity = entities[i];
-                    Household household = entityManager.GetComponentData<Household>(householdEntity);
-                    if ((household.m_Flags & HouseholdFlags.MovedIn) == 0)
-                    {
-                        continue;
-                    }
-
-                    localHouseholds++;
-
-                    bool hasPropertyLink = entityManager.HasComponent<PropertyRenter>(householdEntity);
-                    bool isHomeless = entityManager.HasComponent<HomelessHousehold>(householdEntity) || !hasPropertyLink;
-                    if (isHomeless)
-                    {
-                        homelessHouseholds++;
-                    }
-
-                    if (hasPropertyLink)
-                    {
-                        propertyLinkedHouseholds++;
-                    }
-
-                    if (entityManager.HasComponent<MovingAway>(householdEntity))
-                    {
-                        movingAwayHouseholds++;
-                    }
-                }
-
-                if (sampleStride > 1)
-                {
-                    localHouseholds = ScaleSampledCount(localHouseholds, sampleStride, entities.Length);
-                    movingAwayHouseholds = ScaleSampledCount(movingAwayHouseholds, sampleStride, entities.Length);
-                    homelessHouseholds = ScaleSampledCount(homelessHouseholds, sampleStride, entities.Length);
-                    propertyLinkedHouseholds = ScaleSampledCount(propertyLinkedHouseholds, sampleStride, entities.Length);
-                }
-            }
-            finally
-            {
-                entities.Dispose();
-            }
-        }
-        catch (Exception ex)
-        {
-            error = ex.GetType().Name + ": " + ex.Message;
-            return false;
-        }
-
-        return true;
-    }
-
-    private bool TryScanHouseholdEconomy(
-        EntityManager entityManager,
-        out HouseholdEconomyScanResult result,
-        out string? error)
-    {
-        error = null;
-
-        var resources = new List<int>(capacity: 4096);
-        bool wasSampled = false;
-
-        try
-        {
-            using EntityQuery query = entityManager.CreateEntityQuery(
-                new EntityQueryDesc
-                {
-                    All = new[]
-                    {
-                        ComponentType.ReadOnly<Household>()
-                    },
-                    None = new[]
-                    {
-                        ComponentType.ReadOnly<Deleted>(),
-                        ComponentType.ReadOnly<Temp>()
-                    }
-                });
-
-            NativeArray<Entity> entities = query.ToEntityArray(Allocator.TempJob);
-            try
-            {
-                int sampleStride = ComputeSamplingStride(entities.Length, _sampling.MaxHouseholdEntities);
-                wasSampled = sampleStride > 1;
-                for (int i = 0; i < entities.Length; i += sampleStride)
-                {
-                    Entity householdEntity = entities[i];
-                    Household household = entityManager.GetComponentData<Household>(householdEntity);
-
-                    if ((household.m_Flags & HouseholdFlags.MovedIn) == 0)
-                    {
-                        continue;
-                    }
-
-                    if ((household.m_Flags & HouseholdFlags.Tourist) != 0 ||
-                        (household.m_Flags & HouseholdFlags.Commuter) != 0)
-                    {
-                        continue;
-                    }
-
-                    resources.Add(household.m_Resources);
-                }
-            }
-            finally
-            {
-                entities.Dispose();
-            }
-        }
-        catch (Exception ex)
-        {
-            result = default;
-            error = ex.GetType().Name + ": " + ex.Message;
-            return false;
-        }
-
-        if (resources.Count == 0)
-        {
-            result = default;
-            error = "No local moved-in household resources were available.";
-            return false;
-        }
-
-        resources.Sort();
-        long sum = 0;
-        for (int i = 0; i < resources.Count; i++)
-        {
-            sum += resources[i];
-        }
-
-        double average = sum / (double)resources.Count;
-        double p25 = Percentile(resources, 0.25);
-        double p50 = Percentile(resources, 0.50);
-        double p75 = Percentile(resources, 0.75);
-
-        result = new HouseholdEconomyScanResult(
-            Average: Math.Round(average, 2, MidpointRounding.AwayFromZero),
-            P25: Math.Round(p25, 2, MidpointRounding.AwayFromZero),
-            P50: Math.Round(p50, 2, MidpointRounding.AwayFromZero),
-            P75: Math.Round(p75, 2, MidpointRounding.AwayFromZero),
-            WasSampled: wasSampled);
-        return true;
-    }
-
     private bool TryScanBuildingLandValue(
         EntityManager entityManager,
         out LandValueScanResult result,
@@ -6063,21 +5921,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            using EntityQuery query = entityManager.CreateEntityQuery(
-                new EntityQueryDesc
-                {
-                    All = new[]
-                    {
-                        ComponentType.ReadOnly<Building>(),
-                        ComponentType.ReadOnly<BuildingCondition>()
-                    },
-                    None = new[]
-                    {
-                        ComponentType.ReadOnly<Deleted>(),
-                        ComponentType.ReadOnly<Temp>()
-                    }
-                });
-
+            EntityQuery query = GetOrCreateBuildingLandValueQuery(entityManager);
             NativeArray<Entity> entities = query.ToEntityArray(Allocator.TempJob);
             try
             {
@@ -6136,63 +5980,6 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             P75: Math.Round(Percentile(landValues, 0.75), 2, MidpointRounding.AwayFromZero),
             WasSampled: wasSampled);
         return true;
-    }
-
-    private static void AccumulateWorkplaceLevel(
-        WorkplaceCounter[] levels,
-        int level,
-        int workplaces,
-        int employees,
-        int commuters,
-        bool isService,
-        bool isCommercial,
-        bool isLeisure,
-        bool isExtractor,
-        bool isOffice)
-    {
-        ref WorkplaceCounter counter = ref levels[level];
-        counter.Total += workplaces;
-
-        if (isService)
-        {
-            counter.Service += workplaces;
-            counter.ServiceEmployees += employees;
-        }
-        else if (isCommercial)
-        {
-            if (isLeisure)
-            {
-                counter.Leisure += workplaces;
-                counter.LeisureEmployees += employees;
-            }
-            else
-            {
-                counter.Commercial += workplaces;
-                counter.CommercialEmployees += employees;
-            }
-        }
-        else
-        {
-            if (isExtractor)
-            {
-                counter.Extractor += workplaces;
-                counter.ExtractorEmployees += employees;
-            }
-            else if (isOffice)
-            {
-                counter.Office += workplaces;
-                counter.OfficeEmployees += employees;
-            }
-            else
-            {
-                counter.Industrial += workplaces;
-                counter.IndustrialEmployees += employees;
-            }
-        }
-
-        counter.Employees += employees;
-        counter.Open += workplaces - employees;
-        counter.Commuter += commuters;
     }
 
     private static WorkforceLevelSummary[] CreateWorkforceLevels(
@@ -6415,73 +6202,19 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
     }
 
     private static int ComputeSamplingStride(int totalCount, int maxSamples)
-    {
-        if (maxSamples <= 0 || totalCount <= maxSamples)
-        {
-            return 1;
-        }
-
-        return (int)Math.Ceiling(totalCount / (double)maxSamples);
-    }
+        => EcsScanAccumulators.ComputeSamplingStride(totalCount, maxSamples);
 
     private static int ScaleSampledCount(int sampledCount, int sampleStride, int maxCap)
-    {
-        if (sampleStride <= 1)
-        {
-            return sampledCount;
-        }
-
-        long scaled = (long)sampledCount * sampleStride;
-        if (maxCap > 0 && scaled > maxCap)
-        {
-            scaled = maxCap;
-        }
-
-        return (int)Math.Max(0, scaled);
-    }
+        => EcsScanAccumulators.ScaleSampledCount(sampledCount, sampleStride, maxCap);
 
     private static void ScaleSampledArray(int[] values, int sampleStride, int maxCap)
-    {
-        if (sampleStride <= 1)
-        {
-            return;
-        }
+        => EcsScanAccumulators.ScaleSampledArray(values, sampleStride, maxCap);
 
-        for (int i = 0; i < values.Length; i++)
-        {
-            values[i] = ScaleSampledCount(values[i], sampleStride, maxCap);
-        }
-    }
-
-    private static void ScaleWorkplaceCounters(WorkplaceCounter[] counters, int sampleStride, int maxCap)
-    {
-        if (sampleStride <= 1)
-        {
-            return;
-        }
-
-        for (int i = 0; i < counters.Length; i++)
-        {
-            WorkplaceCounter counter = counters[i];
-            counter.Total = ScaleSampledCount(counter.Total, sampleStride, maxCap);
-            counter.Service = ScaleSampledCount(counter.Service, sampleStride, maxCap);
-            counter.Commercial = ScaleSampledCount(counter.Commercial, sampleStride, maxCap);
-            counter.Leisure = ScaleSampledCount(counter.Leisure, sampleStride, maxCap);
-            counter.Extractor = ScaleSampledCount(counter.Extractor, sampleStride, maxCap);
-            counter.Industrial = ScaleSampledCount(counter.Industrial, sampleStride, maxCap);
-            counter.Office = ScaleSampledCount(counter.Office, sampleStride, maxCap);
-            counter.ServiceEmployees = ScaleSampledCount(counter.ServiceEmployees, sampleStride, maxCap);
-            counter.CommercialEmployees = ScaleSampledCount(counter.CommercialEmployees, sampleStride, maxCap);
-            counter.LeisureEmployees = ScaleSampledCount(counter.LeisureEmployees, sampleStride, maxCap);
-            counter.ExtractorEmployees = ScaleSampledCount(counter.ExtractorEmployees, sampleStride, maxCap);
-            counter.IndustrialEmployees = ScaleSampledCount(counter.IndustrialEmployees, sampleStride, maxCap);
-            counter.OfficeEmployees = ScaleSampledCount(counter.OfficeEmployees, sampleStride, maxCap);
-            counter.Employees = ScaleSampledCount(counter.Employees, sampleStride, maxCap);
-            counter.Open = ScaleSampledCount(counter.Open, sampleStride, maxCap);
-            counter.Commuter = ScaleSampledCount(counter.Commuter, sampleStride, maxCap);
-            counters[i] = counter;
-        }
-    }
+    private static void ScaleWorkplaceCounters(
+        EcsScanAccumulators.WorkplaceLevelCounter[] counters,
+        int sampleStride,
+        int maxCap)
+        => EcsScanAccumulators.ScaleWorkplaceCounters(counters, sampleStride, maxCap);
 
     private static int? ToMonthlyProxy(int? activeEntityCount)
     {
@@ -6655,19 +6388,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
     }
 
     private static int ClampEducationLevel(int level)
-    {
-        if (level < 0)
-        {
-            return 0;
-        }
-
-        if (level > 4)
-        {
-            return 4;
-        }
-
-        return level;
-    }
+        => EcsScanAccumulators.ClampEducationLevel(level);
 
     private static int SumArray(int[] values)
     {
@@ -7813,25 +7534,5 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         public double P50 { get; }
         public double P75 { get; }
         public bool WasSampled { get; }
-    }
-
-    private struct WorkplaceCounter
-    {
-        public int Total;
-        public int Service;
-        public int Commercial;
-        public int Leisure;
-        public int Extractor;
-        public int Industrial;
-        public int Office;
-        public int ServiceEmployees;
-        public int CommercialEmployees;
-        public int LeisureEmployees;
-        public int ExtractorEmployees;
-        public int IndustrialEmployees;
-        public int OfficeEmployees;
-        public int Employees;
-        public int Open;
-        public int Commuter;
     }
 }

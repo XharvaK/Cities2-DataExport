@@ -109,7 +109,7 @@ public sealed class SnapshotWriterTests
     {
         return new CitySnapshotV1
         {
-            SchemaVersion = "2.12.0",
+            SchemaVersion = "2.13.0",
             ExportedAtUtc = "2026-07-16T00:00:00Z",
             ModVersion = modVersion,
             City = new CitySummary { Status = MetricStatus.Ok }
