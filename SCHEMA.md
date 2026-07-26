@@ -1,6 +1,10 @@
 # CitySnapshotV1
 
-Schema version: `2.11.0`
+Schema version: `2.12.0`
+
+`2.12.0` is an additive refresh over `2.11.0`:
+- keeps the same public metric groups as `2.11.0`
+- reserves optional healthcare/fire/police coverage fields in metric metadata until ECS probes land
 
 `2.11.0` is an additive refresh over `2.10.0`:
 - adds `demand_factors_semantics` for RCI demand bars (0..1) and per-zone factor maps from `ResidentialDemandSystem`, `CommercialDemandSystem`, and `IndustrialDemandSystem`

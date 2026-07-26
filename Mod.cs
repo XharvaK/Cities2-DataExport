@@ -97,6 +97,7 @@ namespace CS2DataExport
         {
             SafeLog("disposed");
 
+            _transitAccessGapCaptureCoordinator?.ResetForWorldUnload();
             _entityManager = null;
             _world = null;
             _settings = null;
@@ -108,6 +109,13 @@ namespace CS2DataExport
 
         internal void SetRuntimeContext(EntityManager entityManager, World world)
         {
+            if (!ReferenceEquals(_world, world))
+            {
+                _transitAccessGapCaptureCoordinator?.ResetForWorldUnload();
+                // Probe is owned by MetricsCollector inside DataExportSystem; recreate is heavy.
+                // Query invalidation happens via probe world check on next EnsureQueryWorld.
+            }
+
             _entityManager = entityManager;
             _world = world;
         }

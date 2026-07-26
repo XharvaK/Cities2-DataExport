@@ -298,9 +298,10 @@ public sealed class MetricsCollector
 
     public CitySnapshotV1 CollectSnapshot(DateTimeOffset exportedAtUtc, string modVersion, string? gameBuild)
     {
+#if CS2_RUNTIME
         RuntimeEcsMetricProbe? runtimeProbe = _probe as RuntimeEcsMetricProbe;
         runtimeProbe?.BeginExportCycle();
-
+#endif
         try
         {
             using (ExportProfiler.Measure("collect_snapshot"))
@@ -310,7 +311,9 @@ public sealed class MetricsCollector
         }
         finally
         {
+#if CS2_RUNTIME
             runtimeProbe?.EndExportCycle();
+#endif
         }
     }
 

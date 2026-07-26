@@ -174,6 +174,9 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
     private static readonly object s_typeCacheLock = new();
     private static readonly Dictionary<string, Type?> s_componentTypeCache = new(StringComparer.Ordinal);
+    private static readonly Dictionary<Type, MethodInfo> s_closedHasComponentMethods = new();
+    private static readonly Dictionary<Type, MethodInfo> s_closedGetComponentDataMethods = new();
+    private static readonly Dictionary<Type, MethodInfo> s_closedGetBufferMethods = new();
     private static readonly MethodInfo? s_entityManagerHasComponentMethod = FindEntityManagerGenericMethod("HasComponent", minParameterCount: 1, maxParameterCount: 1);
     private static readonly MethodInfo? s_entityManagerGetComponentDataMethod = FindEntityManagerGenericMethod("GetComponentData", minParameterCount: 1, maxParameterCount: 1);
     private static readonly MethodInfo? s_entityManagerGetBufferMethod = FindEntityManagerGenericMethod("GetBuffer", minParameterCount: 1, maxParameterCount: 2);
@@ -393,6 +396,43 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         if (_transitAccessGapCaptureCoordinator != null &&
             _transitAccessGapCaptureCoordinator.TryGetCompletedSummary(out TransitAccessGapSemanticsSummary summary))
         {
+            if (_transitAccessGapCaptureCoordinator.IsCaptureActive
+                && summary.Status == MetricStatus.Ok)
+            {
+                string[] notes = summary.Notes ?? Array.Empty<string>();
+                var mergedNotes = new List<string>(notes.Length + 1);
+                for (int i = 0; i < notes.Length; i++)
+                {
+                    mergedNotes.Add(notes[i]);
+                }
+
+                const string capturingNote =
+                    "showing previous capture-window hotspots while a new transit trip capture is in progress";
+                bool alreadyNoted = false;
+                for (int i = 0; i < mergedNotes.Count; i++)
+                {
+                    if (string.Equals(mergedNotes[i], capturingNote, StringComparison.Ordinal))
+                    {
+                        alreadyNoted = true;
+                        break;
+                    }
+                }
+
+                if (!alreadyNoted)
+                {
+                    mergedNotes.Add(capturingNote);
+                }
+
+                return new TransitAccessGapSemanticsSummary
+                {
+                    Status = summary.Status,
+                    Notes = mergedNotes.ToArray(),
+                    CaptureContext = summary.CaptureContext,
+                    Summary = summary.Summary,
+                    Hotspots = summary.Hotspots
+                };
+            }
+
             return summary;
         }
 
@@ -2278,7 +2318,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         };
     }
 
-    private static string? TryResolveObservedLineName(
+    private string? TryResolveObservedLineName(
         EntityManager entityManager,
         NameSystem nameSystem,
         Entity lineEntity,
@@ -3715,7 +3755,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         return results;
     }
 
-    private static string? TryResolveLineDisplayName(
+    private string? TryResolveLineDisplayName(
         EntityManager entityManager,
         Entity lineEntity,
         Type lineComponentType,
@@ -4069,7 +4109,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         return score;
     }
 
-    private static bool TryResolveDisplayNameFromEntityComponents(
+    private bool TryResolveDisplayNameFromEntityComponents(
         EntityManager entityManager,
         Entity entity,
         out string? displayName,
@@ -4079,6 +4119,14 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         displayName = null;
         resolvedComponentType = null;
 
+        var cacheKey = (entity.Index, entity.Version, preferNameLikeComponents);
+        if (_displayNameCache.TryGetValue(cacheKey, out var cached))
+        {
+            displayName = cached.Name;
+            resolvedComponentType = cached.ComponentType;
+            return cached.Ok;
+        }
+
         NativeArray<ComponentType> componentTypes;
         try
         {
@@ -4086,6 +4134,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         }
         catch
         {
+            _displayNameCache[cacheKey] = (false, null, null);
             return false;
         }
 
@@ -4125,11 +4174,13 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
             if (bestCandidate == null || bestType == null)
             {
+                _displayNameCache[cacheKey] = (false, null, null);
                 return false;
             }
 
             displayName = bestCandidate;
             resolvedComponentType = bestType;
+            _displayNameCache[cacheKey] = (true, bestCandidate, bestType);
             return true;
         }
         finally
@@ -4570,6 +4621,51 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         return null;
     }
 
+    private static MethodInfo GetClosedHasComponentMethod(Type componentType)
+    {
+        lock (s_typeCacheLock)
+        {
+            if (s_closedHasComponentMethods.TryGetValue(componentType, out MethodInfo? cached))
+            {
+                return cached;
+            }
+
+            MethodInfo closed = s_entityManagerHasComponentMethod!.MakeGenericMethod(componentType);
+            s_closedHasComponentMethods[componentType] = closed;
+            return closed;
+        }
+    }
+
+    private static MethodInfo GetClosedGetComponentDataMethod(Type componentType)
+    {
+        lock (s_typeCacheLock)
+        {
+            if (s_closedGetComponentDataMethods.TryGetValue(componentType, out MethodInfo? cached))
+            {
+                return cached;
+            }
+
+            MethodInfo closed = s_entityManagerGetComponentDataMethod!.MakeGenericMethod(componentType);
+            s_closedGetComponentDataMethods[componentType] = closed;
+            return closed;
+        }
+    }
+
+    private static MethodInfo GetClosedGetBufferMethod(Type bufferType)
+    {
+        lock (s_typeCacheLock)
+        {
+            if (s_closedGetBufferMethods.TryGetValue(bufferType, out MethodInfo? cached))
+            {
+                return cached;
+            }
+
+            MethodInfo closed = s_entityManagerGetBufferMethod!.MakeGenericMethod(bufferType);
+            s_closedGetBufferMethods[bufferType] = closed;
+            return closed;
+        }
+    }
+
     private static bool HasComponentByType(EntityManager entityManager, Entity entity, Type componentType)
     {
         if (!typeof(IComponentData).IsAssignableFrom(componentType))
@@ -4586,7 +4682,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            MethodInfo closed = s_entityManagerHasComponentMethod.MakeGenericMethod(componentType);
+            MethodInfo closed = GetClosedHasComponentMethod(componentType);
             object boxedEntityManager = entityManager;
             object? hasComponent = closed.Invoke(boxedEntityManager, new object[] { entity });
             return hasComponent is bool flag && flag;
@@ -4621,7 +4717,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            MethodInfo closed = s_entityManagerGetComponentDataMethod.MakeGenericMethod(componentType);
+            MethodInfo closed = GetClosedGetComponentDataMethod(componentType);
             object boxedEntityManager = entityManager;
             componentData = closed.Invoke(boxedEntityManager, new object[] { entity });
             return true;
@@ -4657,7 +4753,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            MethodInfo closed = s_entityManagerGetBufferMethod.MakeGenericMethod(bufferType);
+            MethodInfo closed = GetClosedGetBufferMethod(bufferType);
             object boxedEntityManager = entityManager;
             ParameterInfo[] parameters = closed.GetParameters();
             object? buffer;
@@ -5285,21 +5381,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            using EntityQuery query = entityManager.CreateEntityQuery(
-                new EntityQueryDesc
-                {
-                    All = new[]
-                    {
-                        ComponentType.ReadOnly<Citizen>(),
-                        ComponentType.ReadOnly<HouseholdMember>()
-                    },
-                    None = new[]
-                    {
-                        ComponentType.ReadOnly<Deleted>(),
-                        ComponentType.ReadOnly<Temp>()
-                    }
-                });
-
+            EntityQuery query = GetOrCreateCitizenPopulationQuery(entityManager);
             NativeArray<Entity> entities = query.ToEntityArray(Allocator.TempJob);
             try
             {
@@ -5464,13 +5546,9 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
         int totalOutside = SumArray(outsideByEducation);
         int totalUnder = SumArray(underByEducation);
 
-        if (!TryScanHouseholdPressureContext(
+        if (!TryGetCachedHouseholdCombinedScan(
                 entityManager,
-                out localHouseholds,
-                out movingAwayHouseholds,
-                out homelessHouseholds,
-                out propertyLinkedHouseholds,
-                out bool householdScanWasSampled,
+                out HouseholdCombinedScanResult householdCombined,
                 out string? householdError))
         {
             result = default;
@@ -5478,7 +5556,11 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
             return false;
         }
 
-        wasSampled = wasSampled || householdScanWasSampled;
+        localHouseholds = householdCombined.LocalHouseholds;
+        movingAwayHouseholds = householdCombined.MovingAwayHouseholds;
+        homelessHouseholds = householdCombined.HomelessHouseholds;
+        propertyLinkedHouseholds = householdCombined.PropertyLinkedHouseholds;
+        wasSampled = wasSampled || householdCombined.WasSampled;
 
         result = new PopulationWorkforceScanResult(
             LocalPopulation: localPopulation,
@@ -5526,26 +5608,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            using EntityQuery query = entityManager.CreateEntityQuery(
-                new EntityQueryDesc
-                {
-                    All = new[]
-                    {
-                        ComponentType.ReadOnly<Employee>(),
-                        ComponentType.ReadOnly<WorkProvider>(),
-                        ComponentType.ReadOnly<PrefabRef>()
-                    },
-                    Any = new[]
-                    {
-                        ComponentType.ReadOnly<PropertyRenter>(),
-                        ComponentType.ReadOnly<Game.Buildings.Building>()
-                    },
-                    None = new[]
-                    {
-                        ComponentType.ReadOnly<Temp>()
-                    }
-                });
-
+            EntityQuery query = GetOrCreateWorkplaceQuery(entityManager);
             NativeArray<Entity> entities = query.ToEntityArray(Allocator.TempJob);
             try
             {
@@ -5840,20 +5903,7 @@ public sealed partial class RuntimeEcsMetricProbe : IMetricProbe
 
         try
         {
-            using EntityQuery query = entityManager.CreateEntityQuery(
-                new EntityQueryDesc
-                {
-                    All = new[]
-                    {
-                        ComponentType.ReadOnly<Household>()
-                    },
-                    None = new[]
-                    {
-                        ComponentType.ReadOnly<Deleted>(),
-                        ComponentType.ReadOnly<Temp>()
-                    }
-                });
-
+            EntityQuery query = GetOrCreateHouseholdQuery(entityManager);
             NativeArray<Entity> entities = query.ToEntityArray(Allocator.TempJob);
             try
             {

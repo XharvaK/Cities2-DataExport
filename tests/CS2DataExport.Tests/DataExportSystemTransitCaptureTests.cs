@@ -15,7 +15,8 @@ public sealed class DataExportSystemTransitCaptureTests
             IntervalSeconds = 600,
             IntervalMinutes = 10,
             OutputRootOverride = CreateTempOutputRoot(),
-            TransitTripCaptureMode = TransitTripCaptureMode.NextExportWindow
+            TransitTripCaptureMode = TransitTripCaptureMode.NextExportWindow,
+            TransitCaptureCooldownMinutes = 0
         };
 
         var captureCoordinator = new FakeTransitAccessGapCaptureCoordinator();
@@ -49,7 +50,8 @@ public sealed class DataExportSystemTransitCaptureTests
             IntervalMinutes = 10,
             OutputRootOverride = CreateTempOutputRoot(),
             TransitTripCaptureMode = TransitTripCaptureMode.NextExportWindow,
-            TransitTripCaptureWindowMinutes = 25
+            TransitTripCaptureWindowMinutes = 25,
+            TransitCaptureCooldownMinutes = 0
         };
 
         var captureCoordinator = new FakeTransitAccessGapCaptureCoordinator();

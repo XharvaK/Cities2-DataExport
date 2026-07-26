@@ -98,6 +98,11 @@ public static class UtilityPressureSemanticsCalculator
             return "capacity_shortage";
         }
 
+        if (water.Consumption is > 0 && (water.Capacity is null or <= 0))
+        {
+            return freshImport is > 0 ? "import_dependent_shortage" : "shortage";
+        }
+
         if (freshImport is > 0 && cityServiceFillPercent is < 85)
         {
             return "import_dependent";
@@ -121,6 +126,13 @@ public static class UtilityPressureSemanticsCalculator
         if (sewage.Capacity is > 0 && sewage.Consumption is int consumption && consumption > sewage.Capacity)
         {
             return "capacity_shortage";
+        }
+
+        // Zero/missing capacity with active demand is a network/treatment failure
+        // (e.g. bulldozed sewers), not "ok".
+        if (sewage.Consumption is > 0 && (sewage.Capacity is null or <= 0))
+        {
+            return "shortage";
         }
 
         if (sewage.Consumption is > 0)

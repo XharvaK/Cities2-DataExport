@@ -115,7 +115,7 @@ public sealed class DataExportSystem
             }
 
             _log(
-                $"export ok: snapshot='{writeResult.SnapshotPath}', latest='{writeResult.LatestPath}', " +
+                $"export ok: snapshot='{writeResult.SnapshotPath ?? "skipped"}', latest='{writeResult.LatestPath}', " +
                 $"kept={writeResult.KeptSnapshots}, deleted={writeResult.DeletedSnapshots}, next_due='{_nextDueUtc:O}'");
 
             return new ExportTickResult(

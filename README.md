@@ -12,10 +12,11 @@ When the mod is enabled, it periodically exports city data to your local `ModsDa
 
 By default it:
 
-- exports every 5 seconds (override via `CS2DATAEXPORT_INTERVAL_SECONDS`)
-- keeps a rolling history of snapshots
+- exports every 10 seconds (override via `CS2DATAEXPORT_INTERVAL_SECONDS`)
+- keeps a rolling history of snapshots (default retention 500)
 - writes a `latest.json` file for tools that only need the newest city state
 - leaves unavailable or unproven metrics in the file as `null` with status notes instead of guessing
+- runs transit trip capture in short windows with a default cooldown between windows (`CS2DATAEXPORT_TRANSIT_CAPTURE_COOLDOWN_MINUTES`, default 10)
 
 The mod does not upload data anywhere. It only writes files on your machine.
 
@@ -38,7 +39,7 @@ snapshots\<timestamp>.json
 
 ## What Is In The Export
 
-Current schema version: `2.10.0`
+Current schema version: `2.12.0`
 
 Top-level data groups include:
 

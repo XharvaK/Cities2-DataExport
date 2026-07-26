@@ -32,6 +32,31 @@ public sealed class UtilityPressureSemanticsTests
     }
 
     [Fact]
+    public void ClassifySewagePressure_FlagsShortageWhenCapacityZeroWithDemand()
+    {
+        var sewage = new UtilityServiceFlowSummary
+        {
+            Consumption = 800,
+            Capacity = 0,
+            FulfilledConsumption = 0
+        };
+
+        Assert.Equal("shortage", UtilityPressureSemanticsCalculator.ClassifySewagePressure(sewage));
+    }
+
+    [Fact]
+    public void ClassifySewagePressure_FlagsShortageWhenCapacityMissingWithDemand()
+    {
+        var sewage = new UtilityServiceFlowSummary
+        {
+            Consumption = 400,
+            Capacity = null
+        };
+
+        Assert.Equal("shortage", UtilityPressureSemanticsCalculator.ClassifySewagePressure(sewage));
+    }
+
+    [Fact]
     public void BuildServiceTrade_IncludesWaterAndSewageImports()
     {
         var water = new UtilityServiceFlowSummary { ImportPerMonth = 1200, ExportPerMonth = 0 };

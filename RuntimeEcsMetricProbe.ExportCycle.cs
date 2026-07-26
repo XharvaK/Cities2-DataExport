@@ -4,6 +4,7 @@ using Game.Agents;
 using Game.Buildings;
 using Game.Citizens;
 using Game.Common;
+using Game.Companies;
 using Game.Prefabs;
 using Game.Routes;
 using Game.Tools;
@@ -42,6 +43,16 @@ public sealed partial class RuntimeEcsMetricProbe
     private UITransportLineData[] _cachedSortedLines = Array.Empty<UITransportLineData>();
     private string? _sortedLinesError;
 
+    private readonly Dictionary<(int Index, int Version, bool PreferNameLike), (bool Ok, string? Name, Type? ComponentType)> _displayNameCache = new();
+
+    private World? _cachedQueryWorld;
+    private EntityQuery _cachedCitizenPopulationQuery;
+    private EntityQuery _cachedHouseholdQuery;
+    private EntityQuery _cachedWorkplaceQuery;
+    private bool _citizenPopulationQueryValid;
+    private bool _householdQueryValid;
+    private bool _workplaceQueryValid;
+
     public void BeginExportCycle()
     {
         EndExportCycle();
@@ -57,6 +68,122 @@ public sealed partial class RuntimeEcsMetricProbe
         _transportLineUsageCached = false;
         _sortedLinesCached = false;
         _cachedSortedLines = Array.Empty<UITransportLineData>();
+        _displayNameCache.Clear();
+    }
+
+    public void InvalidateCachedEntityQueries()
+    {
+        if (_citizenPopulationQueryValid)
+        {
+            _cachedCitizenPopulationQuery.Dispose();
+            _citizenPopulationQueryValid = false;
+        }
+
+        if (_householdQueryValid)
+        {
+            _cachedHouseholdQuery.Dispose();
+            _householdQueryValid = false;
+        }
+
+        if (_workplaceQueryValid)
+        {
+            _cachedWorkplaceQuery.Dispose();
+            _workplaceQueryValid = false;
+        }
+
+        _cachedQueryWorld = null;
+    }
+
+    private void EnsureQueryWorld(EntityManager entityManager)
+    {
+        World? world = entityManager.World;
+        if (!ReferenceEquals(_cachedQueryWorld, world))
+        {
+            InvalidateCachedEntityQueries();
+            _cachedQueryWorld = world;
+        }
+    }
+
+    private EntityQuery GetOrCreateCitizenPopulationQuery(EntityManager entityManager)
+    {
+        EnsureQueryWorld(entityManager);
+        if (_citizenPopulationQueryValid)
+        {
+            return _cachedCitizenPopulationQuery;
+        }
+
+        _cachedCitizenPopulationQuery = entityManager.CreateEntityQuery(
+            new EntityQueryDesc
+            {
+                All = new[]
+                {
+                    ComponentType.ReadOnly<Citizen>(),
+                    ComponentType.ReadOnly<HouseholdMember>()
+                },
+                None = new[]
+                {
+                    ComponentType.ReadOnly<Deleted>(),
+                    ComponentType.ReadOnly<Temp>()
+                }
+            });
+        _citizenPopulationQueryValid = true;
+        return _cachedCitizenPopulationQuery;
+    }
+
+    private EntityQuery GetOrCreateHouseholdQuery(EntityManager entityManager)
+    {
+        EnsureQueryWorld(entityManager);
+        if (_householdQueryValid)
+        {
+            return _cachedHouseholdQuery;
+        }
+
+        _cachedHouseholdQuery = entityManager.CreateEntityQuery(
+            new EntityQueryDesc
+            {
+                All = new[]
+                {
+                    ComponentType.ReadOnly<Household>()
+                },
+                None = new[]
+                {
+                    ComponentType.ReadOnly<Deleted>(),
+                    ComponentType.ReadOnly<Temp>()
+                }
+            });
+        _householdQueryValid = true;
+        return _cachedHouseholdQuery;
+    }
+
+    private EntityQuery GetOrCreateWorkplaceQuery(EntityManager entityManager)
+    {
+        EnsureQueryWorld(entityManager);
+        if (_workplaceQueryValid)
+        {
+            return _cachedWorkplaceQuery;
+        }
+
+        _cachedWorkplaceQuery = entityManager.CreateEntityQuery(
+            new EntityQueryDesc
+            {
+                All = new[]
+                {
+                    ComponentType.ReadOnly<Employee>(),
+                    ComponentType.ReadOnly<WorkProvider>(),
+                    ComponentType.ReadOnly<PrefabRef>()
+                },
+                Any = new[]
+                {
+                    ComponentType.ReadOnly<PropertyRenter>(),
+                    ComponentType.ReadOnly<Building>()
+                },
+                None = new[]
+                {
+                    ComponentType.ReadOnly<Temp>()
+                }
+            });
+        _workplaceQueryValid = true;
+        return _cachedWorkplaceQuery;
     }
 
     private bool TryGetCachedPopulationAndWorkforceScan(
@@ -258,20 +385,7 @@ public sealed partial class RuntimeEcsMetricProbe
 
         try
         {
-            using EntityQuery query = entityManager.CreateEntityQuery(
-                new EntityQueryDesc
-                {
-                    All = new[]
-                    {
-                        ComponentType.ReadOnly<Household>()
-                    },
-                    None = new[]
-                    {
-                        ComponentType.ReadOnly<Deleted>(),
-                        ComponentType.ReadOnly<Temp>()
-                    }
-                });
-
+            EntityQuery query = GetOrCreateHouseholdQuery(entityManager);
             NativeArray<Entity> entities = query.ToEntityArray(Allocator.TempJob);
             try
             {

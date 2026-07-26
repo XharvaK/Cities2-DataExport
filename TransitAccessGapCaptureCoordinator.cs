@@ -11,7 +11,7 @@ public sealed class TransitAccessGapCaptureCoordinator : ITransitAccessGapCaptur
 
     private DateTimeOffset? _captureStartedAtUtc;
     private ExportSettings? _activeSettings;
-    private TransitAccessGapSemanticsSummary? _completedSummary;
+    private TransitAccessGapSemanticsSummary? _lastGoodSummary;
     private string? _passengerTripCarrierUnavailableNote;
 
     public TransitAccessGapCaptureCoordinator(TransitAccessGapAnalyzer analyzer)
@@ -27,7 +27,7 @@ public sealed class TransitAccessGapCaptureCoordinator : ITransitAccessGapCaptur
         _activeSettings = settings;
         _recordedTrips.Clear();
         _stops.Clear();
-        _completedSummary = null;
+        // Keep last-good hotspots visible during the new window / cooldown.
         _passengerTripCarrierUnavailableNote = null;
     }
 
@@ -40,11 +40,16 @@ public sealed class TransitAccessGapCaptureCoordinator : ITransitAccessGapCaptur
 
         if (!string.IsNullOrWhiteSpace(_passengerTripCarrierUnavailableNote))
         {
-            _completedSummary = new TransitAccessGapSemanticsSummary
+            // Do not overwrite a previous ok last-good with an unavailable finalize.
+            if (_lastGoodSummary == null || _lastGoodSummary.Status != MetricStatus.Ok)
             {
-                Status = MetricStatus.Unavailable,
-                Notes = new[] { _passengerTripCarrierUnavailableNote! }
-            };
+                _lastGoodSummary = new TransitAccessGapSemanticsSummary
+                {
+                    Status = MetricStatus.Unavailable,
+                    Notes = new[] { _passengerTripCarrierUnavailableNote! }
+                };
+            }
+
             _captureStartedAtUtc = null;
             _activeSettings = null;
             return;
@@ -73,14 +78,34 @@ public sealed class TransitAccessGapCaptureCoordinator : ITransitAccessGapCaptur
             completedCapture.Stops.Add(_stops[index]);
         }
 
-        _completedSummary = _analyzer.BuildSummary(completedCapture);
+        TransitAccessGapSemanticsSummary built = _analyzer.BuildSummary(completedCapture);
+        if (built.Status == MetricStatus.Ok)
+        {
+            _lastGoodSummary = built;
+        }
+        else if (_lastGoodSummary == null)
+        {
+            _lastGoodSummary = built;
+        }
+
         _captureStartedAtUtc = null;
         _activeSettings = null;
     }
 
     public void ClearCompletedCapture()
     {
-        _completedSummary = null;
+        // Last-good survives cooldown and the post-finalize tick so Insights stay useful.
+        // Working trip buffers are already cleared when the window ends / next Start.
+        _passengerTripCarrierUnavailableNote = null;
+    }
+
+    public void ResetForWorldUnload()
+    {
+        _captureStartedAtUtc = null;
+        _activeSettings = null;
+        _recordedTrips.Clear();
+        _stops.Clear();
+        _lastGoodSummary = null;
         _passengerTripCarrierUnavailableNote = null;
     }
 
@@ -109,9 +134,9 @@ public sealed class TransitAccessGapCaptureCoordinator : ITransitAccessGapCaptur
 
     public bool TryGetCompletedSummary(out TransitAccessGapSemanticsSummary summary)
     {
-        if (_completedSummary != null)
+        if (_lastGoodSummary != null)
         {
-            summary = _completedSummary;
+            summary = _lastGoodSummary;
             return true;
         }
 
@@ -122,10 +147,13 @@ public sealed class TransitAccessGapCaptureCoordinator : ITransitAccessGapCaptur
     public void MarkPassengerTripCarrierUnavailable(string note)
     {
         _passengerTripCarrierUnavailableNote = note;
-        _completedSummary = new TransitAccessGapSemanticsSummary
+        if (_lastGoodSummary == null || _lastGoodSummary.Status != MetricStatus.Ok)
         {
-            Status = MetricStatus.Unavailable,
-            Notes = new[] { note }
-        };
+            _lastGoodSummary = new TransitAccessGapSemanticsSummary
+            {
+                Status = MetricStatus.Unavailable,
+                Notes = new[] { note }
+            };
+        }
     }
 }
