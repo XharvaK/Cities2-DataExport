@@ -110,7 +110,23 @@ namespace CS2DataExport
             _runtimeProbe = null;
             _transitAccessGapCaptureCoordinator = null;
             _transitAccessGapRuntimeObserver = null;
+            // Allow EnsureInitialized to rebuild after the next city load.
             _initialized = false;
+        }
+
+        /// <summary>
+        /// Called when a GameSimulation world system is created after a load.
+        /// Re-arms export if IMod.OnDispose cleared world state without a new OnLoad.
+        /// </summary>
+        internal void NotifySimulationWorldReady()
+        {
+            EnsureInitialized();
+            if (_settings != null)
+            {
+                SafeLog(
+                    "simulation world ready: enabled=" + _settings.ExportEnabled +
+                    ", interval_sec=" + _settings.EffectiveIntervalSeconds);
+            }
         }
 
         internal void SetRuntimeContext(EntityManager entityManager, World world)
@@ -123,6 +139,8 @@ namespace CS2DataExport
 
             _entityManager = entityManager;
             _world = world;
+            // World can appear before OnCreate notifies us; make sure exporters exist.
+            EnsureInitialized();
         }
 
         private static void SafeLog(string message)

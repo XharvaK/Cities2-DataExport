@@ -5,6 +5,16 @@ namespace CS2DataExport
 {
     public sealed partial class CS2DataExportRuntimeSystem : GameSystemBase
     {
+        protected override void OnCreate()
+        {
+            base.OnCreate();
+            Mod? mod = Mod.TryGetInstance();
+            if (mod != null)
+            {
+                mod.NotifySimulationWorldReady();
+            }
+        }
+
         protected override void OnUpdate()
         {
             Mod? mod = Mod.TryGetInstance();

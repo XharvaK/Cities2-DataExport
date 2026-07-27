@@ -21,8 +21,10 @@ namespace CS2DataExport
 
         void IMod.OnDispose()
         {
+            // Tear down world-bound state but keep s_instance. CS2 can call OnDispose
+            // when leaving a city; GameSimulation systems still run after the next load
+            // and must be able to re-EnsureInitialized without a second IMod.OnLoad.
             OnDispose();
-            s_instance = null;
         }
     }
 }
